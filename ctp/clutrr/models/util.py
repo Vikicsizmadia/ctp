@@ -8,10 +8,11 @@ from ctp.kernels import GaussianKernel
 
 from typing import Tuple, Optional
 
-
-def lookup(query: Tensor,
-           facts: Tensor,
-           nb_facts: Tensor,
+# gives back the similarity measures of each fact in facts to the corresponding query rule
+# size [B,F], but where there's less than F facts the rest are zeroed out (similarity is 0)
+def lookup(query: Tensor, # batch_emb [B,3E]: B: batches, E: embedding size
+           facts: Tensor, # facts_emb [B,F,3E]: F: maximum number of facts
+           nb_facts: Tensor, # [B]: number of facts in each batch
            kernel: BaseKernel) -> Tensor:
     # query: [B, E], facts: [B, F, E], nb_facts: [B]
     batch_size, fact_size, embedding_size = query.shape[0], facts.shape[1], query.shape[1]
@@ -21,13 +22,15 @@ def lookup(query: Tensor,
     assert query.shape[0] == facts.shape[0] == nb_facts.shape[0]
     assert query.shape[1] == facts.shape[2]
 
-    query_repeat = query.view(batch_size, 1, -1).repeat(1, fact_size, 1)
-    kernel_values = kernel(query_repeat, facts).view(batch_size, fact_size)
+    query_repeat = query.view(batch_size, 1, -1).repeat(1, fact_size, 1) # [B,F,3E]
+    # similarity measure between the query embeddings and the fact embeddings
+    kernel_values = kernel(query_repeat, facts).view(batch_size, fact_size) # [B,F]
 
-    mask = torch.arange(fact_size, device=nb_facts.device).expand(batch_size, fact_size) < nb_facts.unsqueeze(1)
+    mask = torch.arange(fact_size, device=nb_facts.device).expand(batch_size, fact_size) < nb_facts.unsqueeze(1) #[B,F]
     return kernel_values * mask
 
-
+# if we have more query fact embeddings in our batch than the batch size of our fact embeddings then we repeat some fact embeddings
+# to have the same instances in the two batches (only works well if we have more by an integer multiple)
 def uniform(a: Tensor,
             b: Tensor,
             c: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
