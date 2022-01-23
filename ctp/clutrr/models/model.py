@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class BatchHoppy(nn.Module):
     def __init__(self,
                  model: BatchNeuralKB,
-                 hops_lst: List[Tuple[BaseReformulator, bool]],
+                 hops_lst: List[Tuple[BaseReformulator, bool]], # [H,2], where H is the length of this list???
                  k: int = 10,
                  depth: int = 0,
                  tnorm_name: str = 'min',
@@ -55,11 +55,11 @@ class BatchHoppy(nn.Module):
         return res
 
     def r_hop(self,
-              rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],
-              facts: List[Tensor],
-              nb_facts: Tensor,
-              entity_embeddings: Tensor,
-              nb_entities: Tensor,
+              rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor], # [B,E]
+              facts: List[Tensor], # [3,B,F,E] = [[B,F,E],[B,F,E],[B,F,E]], where F: maximum number of facts
+              nb_facts: Tensor, # [B], the number of facts in each instance of the batch
+              entity_embeddings: Tensor, # [B,N,E], where N: maximum number of entities
+              nb_entities: Tensor, # [B], the number of entities in each instance of the batch
               depth: int) -> Tuple[Tensor, Tensor]:
         assert (arg1 is None) ^ (arg2 is None)
         assert depth >= 0
@@ -68,9 +68,9 @@ class BatchHoppy(nn.Module):
 
         # [B, N]
         scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
-        scores = scores_sp if arg2 is None else scores_po
+        scores = scores_sp if arg2 is None else scores_po # [B,N]
 
-        k = min(self.k, scores.shape[1])
+        k = min(self.k, scores.shape[1]) # k (default 10), N (maximum number of entities in entity_embeddings)
 
         # [B, K], [B, K]
         z_scores, z_indices = torch.topk(scores, k=k, dim=1)
@@ -78,9 +78,9 @@ class BatchHoppy(nn.Module):
         dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
         dim_2 = z_indices.view(-1)
 
-        entity_embeddings, _ = uniform(z_scores, entity_embeddings)
+        entity_embeddings, _ = uniform(z_scores, entity_embeddings) # making sure that we have enough entity embeddings by multiplicating them to match the size of z_scores
 
-        z_emb = entity_embeddings[dim_1, dim_2].view(z_scores.shape[0], k, -1)
+        z_emb = entity_embeddings[dim_1, dim_2].view(z_scores.shape[0], k, -1) # [B,k,E]
 
         assert z_emb.shape[0] == batch_size
         assert z_emb.shape[2] == embedding_size
@@ -156,16 +156,16 @@ class BatchHoppy(nn.Module):
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None
 
-            # XXX
-            prior = hops_generator.prior(rel)
-            if prior is not None:
+# DELETE this part
+#            prior = hops_generator.prior(rel)
+#            if prior is not None:
 
-                if mask is not None:
-                    prior = prior * mask[:, rule_idx]
-                    if (prior != 0.0).sum() == 0:
-                        continue
-
-                scores = prior
+#                if mask is not None:
+#                    prior = prior * mask[:, rule_idx]
+#                    if (prior != 0.0).sum() == 0:
+#                        continue
+#
+#                scores = prior
 
             hop_rel_lst = hops_generator(rel)
             nb_hops = len(hop_rel_lst)
@@ -261,7 +261,7 @@ class BatchHoppy(nn.Module):
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
 
         if depth == 0:
-            return self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+            return self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities) #score_sp, score_po
 
         global_scores_sp = global_scores_po = None
 
@@ -278,9 +278,11 @@ class BatchHoppy(nn.Module):
             rule_body2s = torch.cat([h.memory_lst[1] for h, _ in self.hops_lst], dim=0)
 
             kernel = self.hops_lst[0][0].kernel
-            new_rule_heads = F.embedding(indices, rule_heads)
-            new_rule_body1s = F.embedding(indices, rule_body1s)
-            new_rule_body2s = F.embedding(indices, rule_body2s)
+            # the top k embeddings from the generated heads that scored the highest when compared to rel
+            # (separately for each instance in the batch)
+            new_rule_heads = F.embedding(indices, rule_heads) # [B,R,E]
+            new_rule_body1s = F.embedding(indices, rule_body1s) # [B,R,E]
+            new_rule_body2s = F.embedding(indices, rule_body2s) # [B,R,E]
 
             assert new_rule_heads.shape[1] == self.R
 
@@ -290,36 +292,38 @@ class BatchHoppy(nn.Module):
                                      body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
                 new_hops_lst += [(r, False)]
 
+        # runs R times through R BaseReformulators (any subclass) --> hop_generators is 1 BaseReformulator
+        # rule_idx is the number of which BR we are currently at
         for rule_idx, (hop_generators, is_reversed) in enumerate(new_hops_lst):
             scores_sp = scores_po = None
-            hop_rel_lst = hop_generators(rel)
+            hop_rel_lst = hop_generators(rel) # [nb_hops,B,E], only need rel for the batch dimension in some cases
             nb_hops = len(hop_rel_lst)
 
             if arg1 is not None:
-                sources, scores = arg1, None
+                sources, scores = arg1, None # sources: [B,branches,E], where barches are the number of branches in an instance
 
                 # XXX
-                prior = hop_generators.prior(rel)
+                prior = hop_generators.prior(rel) # [B], similarity measures: compares Reformulator.head [E] to rel [B,E]
                 if prior is not None:
 
-                    if mask is not None:
+                    if mask is not None: # ? mask is always None
                         prior = prior * mask[:, rule_idx]
                         if (prior != 0.0).sum() == 0:
                             continue
 
                     scores = prior
 
-                for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
-                    # [B * S, E]
-                    sources_2d = sources.view(-1, embedding_size)
-                    nb_sources = sources_2d.shape[0]
+                for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1): # iterates nb_hops times (which is usually 2)
+                    # [B * S, E], where S is the number of branches
+                    sources_2d = sources.view(-1, embedding_size) # flat out 3d sources
+                    nb_sources = sources_2d.shape[0] # = batch size (B) * branches
 
-                    nb_branches = nb_sources // batch_size
+                    nb_branches = nb_sources // batch_size # S
 
                     hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                     hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
-                    if hop_idx < nb_hops:
+                    if hop_idx < nb_hops: # so if we are not at the last iteration
                         # [B * S, K], [B * S, K, E]
                         if is_reversed:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,

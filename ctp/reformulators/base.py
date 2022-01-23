@@ -83,7 +83,10 @@ class NTPReformulator(StaticReformulator):
         res = [memory.repeat(batch_size, 1) for memory in self.memory_lst]
         return res
 
+    # returns the similarity measure between the goal head embeddings (rel)
+    # and the (uniformly of normally) generated head embedding (self.head)
     def prior(self, rel: Tensor) -> Tensor:
+        # assert rel.shape[0] == self.head.shape[0] --> why don't we do this here?
         res = self.kernel(rel, self.head)
         return res.view(-1)
 
@@ -99,11 +102,13 @@ class GNTPReformulator(BaseReformulator):
         self.body = body
 
     def forward(self, rel: Tensor) -> List[Tensor]:
-        for e in self.body:
+        for e in self.body: # loops nb_hops times = how many body we have
             # print(rel.shape, e.shape)
             assert rel.shape[0] == e.shape[0]
         return self.body
 
+    # returns the similarity measure between the goal head embeddings (rel)
+    # and the head embeddings we called the function on (self.head)
     def prior(self, rel: Tensor) -> Tensor:
         assert rel.shape[0] == self.head.shape[0]
         res = self.kernel(rel, self.head)
@@ -147,7 +152,7 @@ class LinearReformulator(BaseReformulator):
 class AttentiveReformulator(BaseReformulator):
     def __init__(self,
                  nb_hops: int,
-                 embeddings: nn.Embedding,
+                 embeddings: nn.Embedding, #Is this [|R|,k] dimensions?
                  init_name: Optional[str] = "uniform",
                  lower_bound: float = -1.0,
                  upper_bound: float = 1.0):

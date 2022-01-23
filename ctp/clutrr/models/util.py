@@ -29,7 +29,7 @@ def lookup(query: Tensor, # batch_emb [B,3E]: B: batches, E: embedding size
     mask = torch.arange(fact_size, device=nb_facts.device).expand(batch_size, fact_size) < nb_facts.unsqueeze(1) #[B,F]
     return kernel_values * mask
 
-# if we have more query fact embeddings in our batch than the batch size of our fact embeddings then we repeat some fact embeddings
+# if we have more query fact embeddings (a) in our batch than the batch size of our fact embeddings (b) then we repeat some fact embeddings
 # to have the same instances in the two batches (only works well if we have more by an integer multiple)
 def uniform(a: Tensor,
             b: Tensor,
