@@ -81,6 +81,7 @@ class Data:
     def _to_obj(s: str) -> Any:
         return json.loads(s.replace(")", "]").replace("(", "[").replace("'", "\""))
 
+    # extracting the triples and the target from the csv file
     @staticmethod
     def parse(path: str) -> List[Instance]:
         res = []

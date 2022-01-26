@@ -115,7 +115,7 @@ class BatchHoppy(nn.Module):
                       nb_facts: Tensor,
                       entity_embeddings: Tensor,
                       nb_entities: Tensor,
-                      depth: int) -> Tensor:
+                      depth: int) -> Tensor: # result is [B]
         assert depth >= 0
 
         if depth == 0:
@@ -247,7 +247,7 @@ class BatchHoppy(nn.Module):
         res_sp, res_po = None, None
         for d in range(depth + 1):
             scores_sp, scores_po = self.depth_r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
-            res_sp = scores_sp if res_sp is None else torch.max(res_sp, scores_sp)
+            res_sp = scores_sp if res_sp is None else torch.max(res_sp, scores_sp) # gives back from each element the max of the 2 tensors
             res_po = scores_po if res_po is None else torch.max(res_po, scores_po)
         return res_sp, res_po
 
@@ -300,7 +300,7 @@ class BatchHoppy(nn.Module):
             nb_hops = len(hop_rel_lst)
 
             if arg1 is not None:
-                sources, scores = arg1, None # sources: [B,branches,E], where barches are the number of branches in an instance
+                sources, scores = arg1, None # sources: [B,branches,E], where branches (=S) are the number of branches in an instance
 
                 # XXX
                 prior = hop_generators.prior(rel) # [B], similarity measures: compares Reformulator.head [E] to rel [B,E]
@@ -323,7 +323,7 @@ class BatchHoppy(nn.Module):
                     hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                     hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
-                    if hop_idx < nb_hops: # so if we are not at the last iteration
+                    if hop_idx < nb_hops: # if we are not at the last iteration
                         # [B * S, K], [B * S, K, E]
                         if is_reversed:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
@@ -351,17 +351,19 @@ class BatchHoppy(nn.Module):
                         else:
                             scores_sp, _ = self.r_forward(hop_rel_2d, sources_2d, None,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        # difference between r_hop and r_forward is that r_hop takes only the top k scores,
+                        # while r_forward gives back all scores
 
                         nb_entities_ = scores_sp.shape[1]
 
                         if scores is not None:
                             scores = scores.view(-1, 1).repeat(1, nb_entities_)
-                            scores_sp = self._tnorm(scores, scores_sp)
+                            scores_sp = self._tnorm(scores, scores_sp) # (usually) taking the min of them (minimum of all embedding similarities)
 
                             # [B, S, N]
                             scores_sp = scores_sp.view(batch_size, -1, nb_entities_)
                             # [B, N]
-                            scores_sp, _ = torch.max(scores_sp, dim=1)
+                            scores_sp, _ = torch.max(scores_sp, dim=1) # taking only the max from the branches (maximum of all proof scores)s
 
             if arg2 is not None:
                 sources, scores = arg2, None

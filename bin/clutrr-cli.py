@@ -152,63 +152,107 @@ def main(argv):
 
     train_path = test_path = "data/clutrr-emnlp/data_test/64.csv"
 
+    # dataset path to the csv file we want to train on
     argparser.add_argument('--train', action='store', type=str, default=train_path)
+    # dataset path to the csv file we want to test on (1 or more test sets)
     argparser.add_argument('--test', nargs='+', type=str, default=[test_path])
 
     # model params
+
+    # the size of the embedding of each atom and relationship
     argparser.add_argument('--embedding-size', '-k', action='store', type=int, default=20)
+    # when proving the body of a rule, we consider the k best substitutions for each variable
     argparser.add_argument('--k-max', '-m', action='store', type=int, default=10)
+    # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
     argparser.add_argument('--max-depth', '-d', action='store', type=int, default=2)
+    # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
     argparser.add_argument('--test-max-depth', action='store', type=int, default=None)
 
+    # the shape of the reformulation:
+    # 2: goal(X,Z) -> p(X,Y), q(Y,Z) (2 elements in the body)
+    # 1: goal(X,Z) -> r(X,Z) (1 element in the body)
+    # 1R: goal(X,Z) -> s(Z,X) (variables in reversed order)
+    # if we have multiple in the array, that means at each reformulation step we actually reformulate the same goal
+    # multiple times according to the elements in the array (so we have more choice to get to a good proof)
     argparser.add_argument('--hops', nargs='+', type=str, default=['2', '2', '1R'])
+#### IGNORE
+    # use it for mapping from the goal to the subgoals
     argparser.add_argument('--encoder', nargs='+', type=str, default=None)
 
     # training params
+
+    #
     argparser.add_argument('--epochs', '-e', action='store', type=int, default=100)
+    #
     argparser.add_argument('--learning-rate', '-l', action='store', type=float, default=0.1)
+    # training batch size
     argparser.add_argument('--batch-size', '-b', action='store', type=int, default=8)
+    # testing batch size --> this can be smaller than for training
     argparser.add_argument('--test-batch-size', '--tb', action='store', type=int, default=None)
 
+    #
     argparser.add_argument('--optimizer', '-o', action='store', type=str, default='adagrad',
                            choices=['adagrad', 'adam', 'sgd'])
 
+    #
     argparser.add_argument('--seed', action='store', type=int, default=0)
 
+    # how often you want to evaluate
     argparser.add_argument('--evaluate-every', '-V', action='store', type=int, default=1)
     argparser.add_argument('--evaluate-every-batches', action='store', type=int, default=None)
 
+    # whether you want to regularize
     argparser.add_argument('--N2', action='store', type=float, default=None)
     argparser.add_argument('--N3', action='store', type=float, default=None)
+    #
     argparser.add_argument('--entropy', '-E', action='store', type=float, default=None)
 
+    #
     argparser.add_argument('--scoring-type', '-s', action='store', type=str, default='concat',
                            choices=['concat', 'min'])
 
+    # how to get the score combined from the conjunction of the parts of the body in a rule
+    # e.g. goal(X,Y) :- p(X,Z), q(Z,Y) --> how do we combine the scores of p and q
+    # I can just keep min, it works well, and later add the others potentially
     argparser.add_argument('--tnorm', '-t', action='store', type=str, default='min',
                            choices=['min', 'prod', 'mean'])
+    # which function to use for reformulating a goal to subgoals
+    # I can just keep linear for the initial version, and if it works, I can add more
     argparser.add_argument('--reformulator', '-r', action='store', type=str, default='linear',
                            choices=['static', 'linear', 'attentive', 'memory', 'ntp'])
+#### IGNORE
     argparser.add_argument('--nb-rules', '-R', action='store', type=int, default=4)
 
+    #
     argparser.add_argument('--gradient-accumulation-steps', action='store', type=int, default=1)
 
+#### IGNORE --> code as well
     argparser.add_argument('--GNTP-R', action='store', type=int, default=None)
 
+    #
     argparser.add_argument('--slope', '-S', action='store', type=float, default=None)
+    #
     argparser.add_argument('--init-size', '-i', action='store', type=float, default=1.0)
 
+    #
     argparser.add_argument('--init', action='store', type=str, default='uniform')
+    #
     argparser.add_argument('--ref-init', action='store', type=str, default='random')
 
+#### IGNORE
     argparser.add_argument('--fix-relations', '--FR', action='store_true', default=False)
+    # whether you want to train on the smallest graph first (it's easier to train on them)
     argparser.add_argument('--start-simple', action='store', type=int, default=None)
 
+    #
     argparser.add_argument('--debug', '-D', action='store_true', default=False)
 
+    #
     argparser.add_argument('--load', action='store', type=str, default=None)
+    #
     argparser.add_argument('--save', action='store', type=str, default=None)
 
+    #
     argparser.add_argument('--predicate', action='store_true', default=False)
 
     args = argparser.parse_args(argv)
@@ -313,9 +357,11 @@ def main(argv):
 
     relation_embeddings.weight.data *= init_size
 
+    # the model that lets you look up in the KB
     model = BatchNeuralKB(kernel=kernel, scoring_type=scoring_type).to(device)
     memory: Dict[int, MemoryReformulator.Memory] = {}
 
+    # generates a reformulator of type given as an argument
     def make_hop(s: str) -> Tuple[BaseReformulator, bool]:
         nonlocal memory
         if s.isdigit():
@@ -342,12 +388,16 @@ def main(argv):
 
     hops_lst = [make_hop(s) for s in hops_str]
 
+    # model is a neural KB for checking whether the facts are true or not
     encoder_model = model
+
+#### IGNORE encoder_str
     if encoder_str is not None:
         encoder_lst = [make_hop(s) for s in encoder_str]
         encoder_model = BatchHoppy(model=model, k=k_max, depth=1, tnorm_name=tnorm_name,
                                    hops_lst=encoder_lst, R=gntp_R).to(device)
 
+    # the model that does the reasoning, using the neural KB
     hoppy = BatchHoppy(model=encoder_model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
                        hops_lst=hops_lst, R=gntp_R).to(device)
 
