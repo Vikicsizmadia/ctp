@@ -118,7 +118,7 @@ class GNTPReformulator(BaseReformulator):
 
 class LinearReformulator(BaseReformulator):
     def __init__(self,
-                 nb_hops: int,
+                 nb_hops: int, # into how many new subgoals to reformulate the given goal
                  embedding_size: int,
                  init_name: Optional[str] = "uniform",
                  lower_bound: float = -1.0,
@@ -134,16 +134,24 @@ class LinearReformulator(BaseReformulator):
 
         def make_hop(std: float = 1.0) -> nn.Module:
             res = nn.Linear(embedding_size, embedding_size)
+            # res.weight: learnable weights of this transformator: [E,E], initialized to: uniform(-sqrt(1/E),sqrt(1/E))
 
+            # reinitialize weights to a different distribution
             if self.init_name in {"uniform"}:
                 nn.init.uniform_(res.weight, self.lower_bound, self.upper_bound)
             elif self.init_name in {"normal"}:
                 nn.init.normal_(res.weight, std=std)
 
+            # res.bias (b): learnable bias of this transformator: [E], initialized to: uniform(-sqrt(1/E),sqrt(1/E))
+            # if this res gets an input (t) of size E it will apply t(A^T) + b on it, where A is the weights matrix
             return res
 
+        # nb_hops number of linear transformators, that can get in an embedding (t) and give back a transformed one:
+        # t(A^T) + b
+        # each of these transformators have their own weights and biases, they learn independently
         self.hops_lst = nn.ModuleList([make_hop() for _ in range(nb_hops)])
 
+    # gives back nb_hops number of reformulated rel embeddings (it's usually 2): rel --> new subgoal1, new subgoal2
     def forward(self, rel: Tensor) -> List[Tensor]:
         res = [hop(rel) for hop in self.hops_lst]
         return res

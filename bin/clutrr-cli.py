@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+from os.path import join, dirname, abspath
 import sys
 
 import argparse
@@ -116,8 +117,9 @@ class Batcher:
                   batch_end: int) -> np.ndarray:
         return self.curriculum[batch_start:batch_end]
 
-
-def encode_relation(facts: List[Fact],
+# takes in the list of facts [F,3]
+# gives back the list of the embeddings corresponding to the relations of each fact [F,E]
+def encode_relation(facts: List[Fact], # [F,3]: [(s,r,o), (s,r,o), ..., (s,r,o)]
                     relation_embeddings: Tensor,
                     relation_to_idx: Dict[str, int],
                     device: Optional[torch.device] = None) -> Tensor:
@@ -126,7 +128,8 @@ def encode_relation(facts: List[Fact],
     res = F.embedding(indices, relation_embeddings)
     return res
 
-
+# takes in the list of facts [F,3]
+# gives back the list of the embeddings corresponding to the subject and object of each fact [F,E],[F,E]
 def encode_arguments(facts: List[Fact],
                      entity_embeddings: Tensor,
                      entity_to_idx: Dict[str, int],
@@ -136,7 +139,10 @@ def encode_arguments(facts: List[Fact],
     emb = F.embedding(indices, entity_embeddings)
     return emb[:, 0, :], emb[:, 1, :]
 
-
+# takes in the list of facts [F,3]
+# gives back the list of the embeddings corresponding to all entities that are in the facts as either
+# subject or object
+# [N,E], where N is the number of different entities in the facts
 def encode_entities(facts: List[Fact],
                     entity_embeddings: Tensor,
                     entity_to_idx: Dict[str, int],
@@ -150,7 +156,7 @@ def encode_entities(facts: List[Fact],
 def main(argv):
     argparser = argparse.ArgumentParser('CLUTRR', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    train_path = test_path = "data/clutrr-emnlp/data_test/64.csv"
+    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv') # "data/clutrr-emnlp/data_test/64.csv"
 
     # dataset path to the csv file we want to train on
     argparser.add_argument('--train', action='store', type=str, default=train_path)
@@ -430,14 +436,22 @@ def main(argv):
                 instance = Instance(new_story, new_target, instance.nb_nodes)
 
             story, target = instance.story, instance.target
-            s, r, o = target
+            s, r, o = target # 1 target relation
 
+            # the relation embeddings from all facts (==story)
+            # [F,E], where F is the number of facts
             story_rel = encode_relation(story, relation_embeddings.weight,
                                         predicate_to_idx if is_predicate else relation_to_idx, device)
+            # the subject,object embeddings from all facts (==story)
+            # [F,E],[F,E]
             story_arg1, story_arg2 = encode_arguments(story, entity_embeddings.weight, entity_to_idx, device)
 
+            # the subject,object embeddings from all facts (==story) as a list of all different entity embeddings
+            # [N,E], where N is the number of different entities in the facts
             embeddings = encode_entities(story, entity_embeddings.weight, entity_to_idx, device)
 
+            # target subject (s), object(o) paired with all possible relations from the relation_lst (x)
+            # [R,3] where R is the number of relations
             target_lst: List[Tuple[str, str, str]] = [(s, x, o) for x in relation_lst]
 
             assert len(target_lst) == len(test_predicate_lst if is_predicate else test_relation_lst)
@@ -445,50 +459,81 @@ def main(argv):
             # true_predicate = rel_to_predicate[r]
             # label_lst += [int(true_predicate == rel_to_predicate[r]) for r in relation_lst]
 
+            # for each instance in the batch we are iterating through: [0,0,...,0,1,0,0,...,0] list
+            # where 1 is at the relation that is the target relation
             label_lst += [int(tr == r) for tr in relation_lst]
 
+            # relation embeddings of the target subject,object paired with all possible relations - R relations
+            # [R,E]
             rel_emb = encode_relation(target_lst, relation_embeddings.weight,
                                       predicate_to_idx if is_predicate else relation_to_idx, device)
+            # target subject,object embeddings
+            # [R,E],[R,E] (actually all will be the same as the subject, object doesn't change just the relations)
             arg1_emb, arg2_emb = encode_arguments(target_lst, entity_embeddings.weight, entity_to_idx, device)
 
-            batch_size = rel_emb.shape[0]
-            fact_size = story_rel.shape[0]
-            entity_size = embeddings.shape[0]
+            batch_size = rel_emb.shape[0] # R - the number of relations --> B from now on
+            fact_size = story_rel.shape[0] # F - the number of facts in "story"
+            entity_size = embeddings.shape[0] # N - the number of different entities in the facts (=="story")
 
             # [B, E]
+            # at each instance in the batch we add [B,E] to it (B==R)
+            # --> rel_emb_lst will become [batch,B,E], where batch is number of instances in batch
             rel_emb_lst += [rel_emb]
             arg1_emb_lst += [arg1_emb]
             arg2_emb_lst += [arg2_emb]
 
             # [B, F, E]
+            # repeat the same facts for each rel subst in instance of current batch
+            # (1 batch will be all possible relation substitutions for the target relation)
+            # --> story_rel_lst will become [batch,B,F,E], where batch is number of instances in batch
             story_rel_lst += [story_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)]
             story_arg1_lst += [story_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)]
             story_arg2_lst += [story_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)]
 
             # [B, N, E]
+            # repeat the same entity embeddings for each instance in batch (== for each relation)
+            # (1 batch will be all possible relation substitutions for the target relation)
+            # --> embeddings_lst will become [batch,B,N,E], where batch is number of instances in batch
             embeddings_lst += [embeddings.view(1, entity_size, -1).repeat(batch_size, 1, 1)]
 
         def cat_pad(t_lst: List[Tensor]) -> Tuple[Tensor, Tensor]:
+            # t: [B,F,E] --> t.shape[1] == F --> F possibly different each time
+            # OR
+            # t: [B,N,E] --> t.shape[1] == N --> N possibly different each time
             lengths: List[int] = [t.shape[1] for t in t_lst]
             max_len: int = max(lengths)
 
+            # pad the _t tensor: [B,F,E] (which is all t in t_lst) with embeddings of 0 where F is smaller than max_len
+            # OR
+            # pad the _t tensor: [B,N,E] (which is all t in t_lst) with embeddings of 0 where N is smaller than max_len
             def my_pad(_t: Tensor, pad: List[int]) -> Tensor:
                 return torch.transpose(F.pad(torch.transpose(_t, 1, 2), pad=pad), 1, 2)
 
-            res_t: Tensor = torch.cat([my_pad(t, pad=[0, max_len - lengths[i]]) for i, t in enumerate(t_lst)], dim=0)
+            # [batch*B,F,E], where each F is the same (sometimes padded with extra 0 embeddings to reach that)
+            # OR
+            # [batch*B,N,E], where each N is the same (sometimes padded with extra 0 embeddings to reach that)
+            res_t: Tensor = torch.cat([my_pad(t, pad=[0, max_len - lengths[idx]]) for idx, t in enumerate(t_lst)], dim=0)
+            # [batch*B], the number of facts (before padding) in an instance
+            # OR
+            # [batch*B], the number of entities (before padding) in an instance
             res_l: Tensor = torch.tensor([t.shape[1] for t in t_lst for _ in range(t.shape[0])],
                                          dtype=torch.long, device=device)
-            return res_t, res_l
+            return res_t, res_l # [batch*B,F,E],[batch*B] OR [batch*B,N,E],[batch*B]
 
+        # [batch*B,E], where batch is number of batches & B is batch_size that is number of relations
         rel_emb = torch.cat(rel_emb_lst, dim=0)
         arg1_emb = torch.cat(arg1_emb_lst, dim=0)
         arg2_emb = torch.cat(arg2_emb_lst, dim=0)
 
-        story_rel, nb_facts = cat_pad(story_rel_lst)
+        # story_rel,story_arg1,story_arg2: [batch*B,F,E], where each F is the same (sometimes padded with extra 0 embeddings to reach that)
+        # nb_facts: [batch*B], the number of facts (before padding) in each instance
+        story_rel, nb_facts = cat_pad(story_rel_lst) # story_rel_lst: [batch,B,F,E]
         story_arg1, _ = cat_pad(story_arg1_lst)
         story_arg2, _ = cat_pad(story_arg2_lst)
-        facts = [story_rel, story_arg1, story_arg2]
+        facts = [story_rel, story_arg1, story_arg2] # [3,batch*B,F,E]
 
+        # _embeddings: [batch*B,N,E], where each N is the same (sometimes padded with extra 0 embeddings to reach that)
+        # nb_embeddings: [batch*B], the number of entities (before padding) in each instance
         _embeddings, nb_embeddings = cat_pad(embeddings_lst)
 
         max_depth_ = hoppy.depth
@@ -573,6 +618,7 @@ def main(argv):
             indices_batch = batcher.get_batch(batch_start, batch_end)
             instances_batch = [training_set[i] for i in indices_batch]
 
+            #label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
             if is_predicate is True:
                 label_lst: List[int] = [int(relation_to_predicate[ins.target[1]] == tp)
                                         for ins in instances_batch
@@ -582,6 +628,7 @@ def main(argv):
 
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
+            #returns scores of what??
             scores, query_emb_lst = scoring_function(instances_batch,
                                                      test_predicate_lst if is_predicate else test_relation_lst,
                                                      is_train=True,

@@ -21,4 +21,4 @@ torch-spline-conv
 torch-geometric
 pytest
 pytest-xdist
-pytest-forked
+#pytest-forked

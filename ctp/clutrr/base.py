@@ -3,6 +3,8 @@
 import csv
 import yaml
 import json
+from os.path import join, dirname, abspath
+
 
 from collections import OrderedDict
 
@@ -11,7 +13,7 @@ from typing import List, Tuple, Any, Optional, Dict
 Fact = Tuple[str, str, str]
 Story = List[Fact]
 
-
+# an instance of data --> a batch consists of these instances
 class Instance:
     def __init__(self,
                  story: Story,
@@ -36,13 +38,13 @@ class Instance:
     def __str__(self) -> str:
         return f'{self.story}\t{self.target}'
 
-
+# parses the data given from a csv specified by the path inputs
 class Data:
     def __init__(self,
-                 train_path: str = 'data/clutrr-emnlp/data_089907f8/1.2,1.3_train.csv',
+                 train_path: str = join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_089907f8', '1.2,1.3_train.csv'), #'data/clutrr-emnlp/data_089907f8/1.2,1.3_train.csv',
                  test_paths: Optional[List[str]] = None):
 
-        with open('data/clutrr-emnlp/relations_store.yaml', 'r') as f:
+        with open(join(dirname(dirname(dirname(abspath(__file__)))), "data", "clutrr-emnlp", "relations_store.yaml"), 'r') as f:
             rs = yaml.safe_load(f)
 
         self.relation_to_predicate = {r['rel']: k for k, v in rs.items()

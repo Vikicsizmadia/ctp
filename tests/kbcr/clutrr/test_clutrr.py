@@ -934,4 +934,4 @@ def test_clutrr_v7():
 
 if __name__ == '__main__':
     pytest.main([__file__])
-    test_clutrr_v1()
+    test_clutrr_v2()
