@@ -45,6 +45,7 @@ class BatchHoppy(nn.Module):
 
     def _tnorm(self, x: Tensor, y: Tensor) -> Tensor:
         res = None
+        # of each element of both tensor takes the smaller
         if self.tnorm_name == 'min':
             res = torch.min(x, y)
         elif self.tnorm_name == 'prod':
@@ -81,13 +82,25 @@ class BatchHoppy(nn.Module):
         # embedding_size: E
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
 
-        # [B, N]
+        # [bathc*B, N]
+
+        # if depth == 0:
+        # returns the maximum similarity measure (=max proof score) of the queries (targets) to the facts
+        # --> does this for every entity embedding inserted in the place of 1 of the two arguments
+        # [batch*B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
+
+        # if depth > 0:
+        # this gives the best scoring entity substitution's scores for each last entity embedding
+        # and from each of these the best among different Reformulators
+        # and from each of these the best among all depths<= "depth"
         scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
-        scores = scores_sp if arg2 is None else scores_po # [B,N]
+        scores = scores_sp if arg2 is None else scores_po # [batch*B,N]
 
         k = min(self.k, scores.shape[1]) # k (default 10), N (maximum number of entities in entity_embeddings)
 
-        # [B, K], [B, K]
+# z_indices indicates which embedding substitution scored in the top k
+        # [batch*B, K], [batch*B, K]
+        # chooses the top k from each row in scores
         z_scores, z_indices = torch.topk(scores, k=k, dim=1)
 
         dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
@@ -95,12 +108,13 @@ class BatchHoppy(nn.Module):
 
         entity_embeddings, _ = uniform(z_scores, entity_embeddings) # making sure that we have enough entity embeddings by multiplicating them to match the size of z_scores
 
+        # corresponding entity embeddings to the top k scores (z_scores)
         z_emb = entity_embeddings[dim_1, dim_2].view(z_scores.shape[0], k, -1) # [B,k,E]
 
         assert z_emb.shape[0] == batch_size
         assert z_emb.shape[2] == embedding_size
 
-        return z_scores, z_emb
+        return z_scores, z_emb # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
 
     def score(self,
               # rel: relation embeddings of the target subject,object paired with all possible relations - B relations
@@ -299,24 +313,39 @@ class BatchHoppy(nn.Module):
                   depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]:
         res_sp, res_po = None, None
         for d in range(depth + 1): # iterate through all possible depths no larger than "depth"
+            # [B,N], [B,N]
+            # this gives the best scoring entity substitution's scores for each last entity embedding
+            # and from each of these the best among different Reformulators
             scores_sp, scores_po = self.depth_r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
             res_sp = scores_sp if res_sp is None else torch.max(res_sp, scores_sp) # gives back from each element the max of the 2 tensors
             res_po = scores_po if res_po is None else torch.max(res_po, scores_po)
+        # [B,N], [B,N]
+        # this gives the best scoring entity substitution's scores for each last entity embedding
+        # and from each of these the best among different Reformulators
+        # and from each of these the best among all depths
         return res_sp, res_po
 
+
     # called by r_forward, same parameters, just depth iterates in range(depth+1)
+
+    # returns the maximum similarity measure (=max proof score) of the queries (targets) to the facts
+    # --> does this for every entity embedding inserted in the place of 1 of the two arguments
+    # [B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
     def depth_r_forward(self,
                         rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor],
                         facts: List[Tensor],
                         nb_facts: Tensor,
                         entity_embeddings: Tensor,
                         nb_entities: Tensor,
-                        depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]:
+                        depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]: #result: [B,N],[B,N]
 
         # batch_size: batch*B
         # embedding_size: E
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
 
+        # returns the maximum similarity measure (=max proof score) of the queries (targets) to the facts
+        # --> does this for every entity embedding inserted in the place of 1 of the two arguments
+        # [B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
         if depth == 0:
             return self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities) #score_sp, score_po
 
@@ -384,39 +413,47 @@ class BatchHoppy(nn.Module):
                 # hop_rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches
                 for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1): # iterates nb_hops times (which is usually 2)
                     # [B * S, E], where S is the number of branches
-                    # new: [branch*B,E]
+                    # new: [branch*B,E] then later [batch * B * K, E]
                     sources_2d = sources.view(-1, embedding_size) # flat out 3d sources
-                    # new: branch*B
+                    # new: branch*B then later batch*B*K
                     nb_sources = sources_2d.shape[0] # = batch size (B) * branches
 
-                    # new: 1
+                    # new: 1 then later K
                     nb_branches = nb_sources // batch_size # S
 
-                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1) # [batch*B,1,E]
-                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size) # [batch*B,E], same as hop_rel
+                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1) # [batch*B,1,E] then later [batch*B,K,E]
+                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size) # [batch*B,E], same as hop_rel; then later [batch*B*K,E]
 
                     if hop_idx < nb_hops: # if we are not at the last subgoal
                         # [B * S, K], [B * S, K, E]
+                        # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
                         if is_reversed:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                         else:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
-                        k = z_emb.shape[1]
+                        k = z_emb.shape[1] # k
 
                         # [B * S * K]
+                        # [batch * B * K]
                         z_scores_1d = z_scores.view(-1)
                         # [B * S * K, E]
+                        # [batch * B * K, E]
                         z_emb_2d = z_emb.view(-1, embedding_size)
 
                         # [B * S * K, E]
+                        # [batch * B * K, E]
+# here is the indication of which embedding substitutions were used
                         sources = z_emb_2d
                         # [B * S * K]
+                        # [batch * B * K], then [batch * B * K^2], ...
+                        # takes the minimum (if that's tnorm) of the embedding substitution scores
                         scores = z_scores_1d if scores is None \
                             else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
                     else:
                         # [B * S, N]
+                        # scores_sp: [batch*B,N]
                         if is_reversed:
                             _, scores_sp = self.r_forward(hop_rel_2d, None, sources_2d,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
@@ -426,15 +463,17 @@ class BatchHoppy(nn.Module):
                         # difference between r_hop and r_forward is that r_hop takes only the top k scores,
                         # while r_forward gives back all scores
 
-                        nb_entities_ = scores_sp.shape[1]
+                        nb_entities_ = scores_sp.shape[1] # N
 
                         if scores is not None:
                             scores = scores.view(-1, 1).repeat(1, nb_entities_)
+                            # now comparing entity substitution top k scores with all possible entity subst. scores
                             scores_sp = self._tnorm(scores, scores_sp) # (usually) taking the min of them (minimum of all embedding similarities)
 
-                            # [B, S, N]
+                            # [B, S, N], where S = K^(nb_hops-1)
                             scores_sp = scores_sp.view(batch_size, -1, nb_entities_)
                             # [B, N]
+                            # this gives the best scoring entity substitution's scores for each last entity embedding
                             scores_sp, _ = torch.max(scores_sp, dim=1) # taking only the max from the branches (maximum of all proof scores)s
 
             if arg2 is not None:
@@ -494,11 +533,17 @@ class BatchHoppy(nn.Module):
                             # [B, S, N]
                             scores_po = scores_po.view(batch_size, -1, nb_entities_)
                             # [B, N]
+                            # this gives the best scoring entity substitution's scores for each last entity embedding
                             scores_po, _ = torch.max(scores_po, dim=1)
 
             if scores_sp is None and scores_po is None:
                 scores_sp, scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
 
+            # here we have the scores for running 1 Reformulator at the current depth
+            # --> we have to compare this score with previous Reformulator score --> keep the best for each
+            # [B,N]
+            # this gives the best scoring entity substitution's scores for each last entity embedding
+            # and from each of these the best among different Reformulators
             global_scores_sp = scores_sp if global_scores_sp is None else torch.max(global_scores_sp, scores_sp)
             global_scores_po = scores_po if global_scores_po is None else torch.max(global_scores_po, scores_po)
 

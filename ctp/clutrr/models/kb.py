@@ -50,30 +50,41 @@ class BatchNeuralKB(nn.Module):
     # --> does this for every entity embedding inserted in the place of 1 of the two arguments
     # [B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
     def forward(self,
+                # rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches
+                # --> for the current Reformulator
+                # arg1, arg2: [batch*B,E] --> target argument corresponding to the (now reformulated) rel
+                # one of arg1,arg2 is None
                 rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor], # [B,E]
+                # [story_rel, story_arg1, story_arg2]: [3,batch*B,F,E], padded fact embeddings
                 facts: List[Tensor], # [3,B,F,E], F: maximum number of facts
+                # (in 1 batch there is originally the same facts for each B)
+                # [batch*B], the number of facts (before padding) in each instance
                 nb_facts: Tensor, # [B]
+                # all entities corresponding to the facts of 1 batch --> this for all batches
+                # [batch*B,N,E], where each N is the same
                 entity_embeddings: Tensor, # [B,N,E], N: maximum number of entities
+                # (in 1 batch there is originally the same entities for each B)
+                # [batch*B], the number of entities (before padding) in each instance in each batch
                 nb_entities: Tensor) -> Tuple[Optional[Tensor], Optional[Tensor]]: # [B]
         # rel: [B, E], arg1: [B, E], arg2: [B, E]
         # facts: [B, F, E]
         # entity_embeddings: [B, N, E] (XXX: need no. entities)
 
-        # [B, F, 3E]
+        # [batch*B, F, 3E]
         fact_emb = torch.cat(facts, dim=2)
 
-        fact_emb, nb_facts = uniform(rel, fact_emb, nb_facts)
-        entity_embeddings, nb_entities = uniform(rel, entity_embeddings, nb_entities)
+        fact_emb, nb_facts = uniform(rel, fact_emb, nb_facts) # basically does nothing for the current purposes
+        entity_embeddings, nb_entities = uniform(rel, entity_embeddings, nb_entities) # basically does nothing for the current purposes
 
-        batch_size = rel.shape[0] # B
+        batch_size = rel.shape[0] # batch*B
         embedding_size = rel.shape[1] # E
         entity_size = entity_embeddings.shape[1] # N
         fact_size = fact_emb.shape[1] # F
 
-        # [B, N, F, 3E]
+        # [batch*B, N, F, 3E]
         fact_bnf3e = fact_emb.view(batch_size, 1, fact_size, -1).repeat(1, entity_size, 1, 1)
 
-        # [B, N, F, E]
+        # [batch*B, N, F, E]
         rel_bnfe = rel.view(batch_size, 1, 1, embedding_size).repeat(1, entity_size, fact_size, 1)
 
         # [B, N, F, E]
@@ -91,7 +102,7 @@ class BatchNeuralKB(nn.Module):
         score_sp = score_po = None # subject score (sp) = first arg, object score (po) = second arg
 
         if arg1 is not None:
-            # [B, N, F, E]
+            # [batch*B, N, F, E]
             arg1_bnfe = arg1.view(batch_size, 1, 1, embedding_size).repeat(1, entity_size, fact_size, 1)
 
             # [B, N, F, 3E]
