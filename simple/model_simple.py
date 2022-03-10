@@ -55,6 +55,173 @@ class BatchHoppy(nn.Module):
         assert res is not None
         return res
 
+    def prove(self,
+              # rel: relation embeddings of the target subject,object paired with all possible relations - B relations
+                    # --> [B,E]s concatenated
+              # arg1,arg2: target subject,object embeddings (1-1 embedding) -> repeated B times
+                    # --> all these [B,E] in a batch concatenated
+              rel: Tensor, arg1: Tensor, arg2: Tensor, # [batch*B,E]; batch: number of batches; B: batch_size == number of relations
+              # fact embeddings broke to 3 pieces: relation, arg1, arg2 embeddings
+              # in 1 batch for all B instances the facts are the same
+              # different batches possibly different facts
+              facts: List[Tensor], # [story_rel, story_arg1, story_arg2]: [3,batch*B,F,E]
+              # facts are padded, so each batch has the same number of facts
+              # (in 1 batch there is originally the same facts for each B)
+              # so nb_facts indicates the original number of facts
+              nb_facts: Tensor, # [batch*B], the number of facts (before padding) in each instance
+              # all entities corresponding to the facts of 1 batch --> this for all batches
+              entity_embeddings: Tensor, # [batch*B,N,E], where each N is the same
+              # entity_embeddings are padded (with 0-embeddings), so each batch has the same number of entities
+              # (in 1 batch there is originally the same entities for each B)
+              # so nb_entities indicates the original number of entities
+              #  nb_entities: [batch*B], the number of entities (before padding) in each instance in each batch
+              nb_entities: Tensor,
+              depth:int) -> Tensor:
+        res = None
+        # no reformulation
+        scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts,
+                                    entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+        # reformulation
+        if (depth>0):
+            # 1 instead
+            scores_d = self.depth_r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
+
+###1
+            batch_size, embedding_size = rel.shape[0], rel.shape[1]
+            global_res = None
+
+            # [H,2]: list of reformulators (possibly reformulating into different dimensions, e.g. 2,2,1R)
+            # and indicators if reversed (R)
+            # enumerate H times: each is 1 Reformulator (hops_generator)
+            for rule_idx, (hops_generator, is_reversed) in enumerate(self.hops_lst):
+                sources, scores = arg1, None  # sources: [batch*B,E]
+
+                # generates the new subgoals with the current reformulator
+                # --> applies the transformator to each instance in the batch
+                hop_rel_lst = hops_generator(rel)  # [nb_hops,batch*B,E]
+                nb_hops = len(hop_rel_lst)  # usually: 2 (or 1)
+
+                # enumerate through the newly generated subgoals
+                # hop_rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches
+                for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
+                    # [B * S, E] = [batch*B,E]
+                    sources_2d = sources.view(-1, embedding_size)
+                    nb_sources = sources_2d.shape[0]  # B*S = batch*B
+
+                    nb_branches = nb_sources // batch_size  # 1, K, K*K, ...
+
+                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)  # [batch*B,K^n,E]
+                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size)  # [batch*B*K^n,E], same as hop_rel
+
+                    if hop_idx < nb_hops:  # we are not at the last (batch of) subgoals
+
+                        new_arg1, new_arg2 = None, None
+                        #TODO: entity embeddings for other argument, that's None, so that we can call prove instead of r_forward
+                        if is_reversed:
+                            new_arg2 = sources_2d
+                        else:
+                            new_arg1 = sources_2d
+
+                        # 2 instead
+                        # [B * S, K], [B * S, K, E]
+                        z_scores, z_emb = self.r_hop(hop_rel_2d, new_arg1, new_arg2,
+                                                    facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+###2
+
+                        # [bathc*B, N]
+
+                        # if depth == 0:
+                        # returns the maximum similarity measure (=max proof score) of the queries (targets) to the facts
+                        # --> does this for every entity embedding inserted in the place of 1 of the two arguments
+                        # [batch*B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
+
+                        # if depth > 0:
+                        # this gives the best scoring entity substitution's scores for each last entity embedding
+                        # and from each of these the best among different Reformulators
+                        # and from each of these the best among all depths<= "depth"
+                        print("r_hop calls r_forward with same depth: ", depth)
+                        # 3 instead
+                        scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings,
+                                                              nb_entities, depth=depth)
+
+###3
+                        # one of the arguments is all entity embeddings
+                        scores = self.prove(hop_rel_2d, new_arg1, new_arg2, facts, nb_facts,
+                                            entity_embeddings, nb_entities, depth=depth - 1)
+###3
+
+                        print("r_forward called by r_hop returned, was called with depth: ", depth)
+                        scores = scores_sp if arg2 is None else scores_po  # [batch*B,N]
+
+                        k = min(self.k,
+                                scores.shape[1])  # k (default 10), N (maximum number of entities in entity_embeddings)
+
+                        # z_indices indicates which embedding substitution scored in the top k
+                        # [batch*B, K], [batch*B, K]
+                        # chooses the top k from each row in scores
+                        z_scores, z_indices = torch.topk(scores, k=k, dim=1)
+
+                        dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
+                        dim_2 = z_indices.view(-1)
+
+                        # making sure that we have enough entity embeddings by multiplicating them to match the size of z_scores
+                        entity_embeddings, _ = uniform(z_scores, entity_embeddings)
+
+                        # corresponding entity embeddings to the top k scores (z_scores)
+                        z_emb = entity_embeddings[dim_1, dim_2].view(z_scores.shape[0], k, -1)  # [B,k,E]
+
+                        # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
+###2
+                        # [B * S * K]
+                        z_scores_1d = z_scores.view(-1)
+                        # [B * S * K, E]
+                        z_emb_2d = z_emb.view(-1, embedding_size)
+
+                        # [B * S * K, E]
+                        sources = z_emb_2d
+                        # [B * S * K]
+                        scores = z_scores_1d if scores is None \
+                            else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                    else:
+                        # [B, S, E]
+                        arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                        # [B * S, E]
+                        arg2_2d = arg2_3d.view(-1, embedding_size)
+
+                        # [B * S]
+                        if is_reversed:
+                            new_arg1, new_arg2 = arg2_2d, sources_2d
+                        else:
+                            new_arg1, new_arg2 = sources_2d, arg2_2d
+
+                        # 4 instead
+                        z_scores_1d = self.r_score(hop_rel_2d, new_arg1, new_arg2,
+                                                       facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+
+###4
+                        z_scores_1d = self.prove(hop_rel_2d, new_arg1, new_arg2,
+                                                   facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+###4
+
+                        scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
+
+                # finished enumerating through the new subgoals with current reformulator
+                if scores is not None:
+                    scores_2d = scores.view(batch_size, -1)
+                    res, _ = torch.max(scores_2d, dim=1)
+                else:
+                    res = self.model.score(rel, arg1, arg2,
+                                           facts=facts, nb_facts=nb_facts,
+                                           entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+
+                global_res = res if global_res is None else torch.max(global_res, res)
+
+            scores_d = global_res
+###1
+        res = torch.max(scores_0, scores_d)  # choose the one with the higher score
+        return res
+
     # depth_r_score calls this with depth-1
     # depth_r_forward calls this with depth-1
     def r_hop(self,
@@ -121,6 +288,8 @@ class BatchHoppy(nn.Module):
         print("final scores are getting returned from r_hop")
         return z_scores, z_emb # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
 
+    #called from clutrr-cli.py
+    #
     def score(self,
               # rel: relation embeddings of the target subject,object paired with all possible relations - B relations
                     # --> [B,E]s concatenated
@@ -190,50 +359,16 @@ class BatchHoppy(nn.Module):
         # and indicators if reversed (R)
         new_hops_lst = self.hops_lst
 
-# IGNORE
-#        if self.R is not None:
-#            batch_rules_scores = torch.cat([h.prior(rel).view(-1, 1) for h, _ in self.hops_lst], 1)
-#            topk, indices = torch.topk(batch_rules_scores, self.R)
-
-            # [R x E]
-#            rule_heads = torch.cat([h.head for h, _ in self.hops_lst], dim=0)
-#            rule_body1s = torch.cat([h.memory_lst[0] for h, _ in self.hops_lst], dim=0)
-#            rule_body2s = torch.cat([h.memory_lst[1] for h, _ in self.hops_lst], dim=0)
-
-#            kernel = self.hops_lst[0][0].kernel
-#            new_rule_heads = F.embedding(indices, rule_heads)
-#            new_rule_body1s = F.embedding(indices, rule_body1s)
-#            new_rule_body2s = F.embedding(indices, rule_body2s)
-
-            # print(new_rule_heads.shape[1], self.R)
-#            assert new_rule_heads.shape[1] == self.R
-
-#            new_hops_lst = []
-#            for i in range(new_rule_heads.shape[1]):
-#                r = GNTPReformulator(kernel=kernel, head=new_rule_heads[:, i, :],
-#                                     body=[new_rule_body1s[:, i, :], new_rule_body2s[:, i, :]])
-#                new_hops_lst += [(r, False)]
-
         # enumerate H times: each is 1 Reformulator (hops_generator)
         print('depth_r_score enumerates through new_hops_lst: ', new_hops_lst)
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None # sources: [batch*B,E]
             print("depth_r_score current hops_generator: ", hops_generator)
-# DELETE this part
-#            prior = hops_generator.prior(rel)
-#            if prior is not None:
-
-#                if mask is not None:
-#                    prior = prior * mask[:, rule_idx]
-#                    if (prior != 0.0).sum() == 0:
-#                        continue
-#
-#                scores = prior
 
             # generates the new subgoals with the current reformulator
             # --> applies the transformator to each instance in the batch
             hop_rel_lst = hops_generator(rel) # [nb_hops,batch*B,E]
-            nb_hops = len(hop_rel_lst)
+            nb_hops = len(hop_rel_lst) # usually: 2 (or 1)
             print("new subgoals generated, their number is: ", nb_hops)
 
             # enumerate through the newly generated subgoals
@@ -245,7 +380,8 @@ class BatchHoppy(nn.Module):
                 sources_2d = sources.view(-1, embedding_size)
                 nb_sources = sources_2d.shape[0] # B*S = batch*B
 
-                nb_branches = nb_sources // batch_size # 1??
+                print('number of branches: ', nb_branches)
+                nb_branches = nb_sources // batch_size # 1, K, K*K, ...
 
                 hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1) # [batch*B,1,E]
                 hop_rel_2d = hop_rel_3d.view(-1, embedding_size) # [batch*B,E], same as hop_rel
@@ -437,18 +573,6 @@ class BatchHoppy(nn.Module):
                 # new:
                 # sources: [branch*B,E]
                 sources, scores = arg1, None # sources: [B,branches,E], where branches (=S) are the number of branches in an instance
-
-# TO DELETE
-                # [B], similarity measures: compares Reformulator.head [E] to rel [B,E]
-#                prior = hop_generators.prior(rel)
-#                if prior is not None:
-
-#                    if mask is not None: # ? mask is always None
-#                        prior = prior * mask[:, rule_idx]
-#                        if (prior != 0.0).sum() == 0:
-#                            continue
-
-#                    scores = prior
 
                 # enumerate through the newly generated subgoals
                 # hop_rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches

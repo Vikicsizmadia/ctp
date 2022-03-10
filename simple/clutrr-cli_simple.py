@@ -178,7 +178,7 @@ def main(argv):
     # 1R: goal(X,Z) -> s(Z,X) (variables in reversed order)
     # if we have multiple in the array, that means at each reformulation step we actually reformulate the same goal
     # multiple times according to the elements in the array (so we have more choice to get to a good proof)
-    hops_str = ['2', '2', '1R']
+    hops_str = ['2'] # ['2', '2', '1R']
 
 
     # training params
@@ -496,6 +496,7 @@ def main(argv):
     for tensor in params_lst:
         logger.info(f'\t{tensor.size()}\t{tensor.device}')
 
+    #TODO: set just adam for example, no need for all these choices
     optimizer_factory = {
         'adagrad': lambda arg: optim.Adagrad(arg, lr=learning_rate),
         'adam': lambda arg: optim.Adam(arg, lr=learning_rate),
@@ -533,6 +534,7 @@ def main(argv):
             instances_batch = [training_set[i] for i in indices_batch]
 
             #label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
+            #TODO: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
             if is_predicate is True:
                 label_lst: List[int] = [int(relation_to_predicate[ins.target[1]] == tp)
                                         for ins in instances_batch
@@ -575,6 +577,7 @@ def main(argv):
             for test_path in test_paths:
                 evaluate(instances=data.test[test_path], path=test_path)
 
+            # TODO: don't need for now, but we may look at it later
             if is_debug is True:
                 with torch.no_grad():
                     show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
