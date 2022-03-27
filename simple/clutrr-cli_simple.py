@@ -16,6 +16,7 @@ import torch.nn.functional as F
 
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance, accuracy
+from simple import DataParser
 
 from ctp.clutrr.models import BatchNeuralKB
 from model_simple import BatchHoppy
@@ -235,6 +236,7 @@ def main(argv):
     load_path = None # str
     save_path = None # str
 
+    # took out predicates from the code, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
     is_predicate = False
 
 # IGNORED variables:
@@ -257,25 +259,19 @@ def main(argv):
 
 # Initializing data and embeddings
 
-    data = Data(train_path=train_path, test_paths=test_paths)
-    entity_lst, relation_lst = data.entity_lst, data.relation_lst
-    predicate_lst = data.predicate_lst
-
-    relation_to_predicate = data.relation_to_predicate
+    data = DataParser(train_path=train_path, test_paths=test_paths)
+    entity_lst = sorted({*data.train_nodes_ids} | {*data.test_nodes_ids})  # this returns the keys of the dicts
+    relation_lst = data.relation_lst
 
     test_relation_lst = ["aunt", "brother", "daughter", "daughter-in-law", "father", "father-in-law", "granddaughter",
                          "grandfather", "grandmother", "grandson", "mother", "mother-in-law", "nephew", "niece",
                          "sister", "son", "son-in-law", "uncle"]
 
-    test_predicate_lst = sorted({relation_to_predicate[r] for r in test_relation_lst})
-
     nb_entities = len(entity_lst)
     nb_relations = len(relation_lst)
-    nb_predicates = len(predicate_lst)
 
     entity_to_idx = {e: i for i, e in enumerate(entity_lst)}
     relation_to_idx = {r: i for i, r in enumerate(relation_lst)}
-    predicate_to_idx = {p: i for i, p in enumerate(predicate_lst)}
 
     kernel = GaussianKernel(slope=slope)
 
@@ -283,8 +279,7 @@ def main(argv):
     nn.init.uniform_(entity_embeddings.weight, -1.0, 1.0)
     entity_embeddings.requires_grad = False
 
-    relation_embeddings = nn.Embedding(nb_relations if not is_predicate else nb_predicates,
-                                       embedding_size, sparse=True).to(device)
+    relation_embeddings = nn.Embedding(nb_relations, embedding_size, sparse=True).to(device)
 
     if is_fixed_relations is True:
         relation_embeddings.requires_grad = False
@@ -339,22 +334,12 @@ def main(argv):
 
         for i, instance in enumerate(instances_batch):
 
-            if is_predicate is True:
-                def _convert_fact(fact: Fact) -> Fact:
-                    _s, _r, _o = fact
-                    return _s, relation_to_predicate[_r], _o
-
-                new_story = [_convert_fact(f) for f in instance.story]
-                new_target = _convert_fact(instance.target)
-                instance = Instance(new_story, new_target, instance.nb_nodes)
-
             story, target = instance.story, instance.target
             s, r, o = target # 1 target relation
 
             # the relation embeddings from all facts (==story)
             # [F,E], where F is the number of facts
-            story_rel = encode_relation(story, relation_embeddings.weight,
-                                        predicate_to_idx if is_predicate else relation_to_idx, device)
+            story_rel = encode_relation(story, relation_embeddings.weight, relation_to_idx, device)
             # the subject,object embeddings from all facts (==story)
             # [F,E],[F,E]
             story_arg1, story_arg2 = encode_arguments(story, entity_embeddings.weight, entity_to_idx, device)
@@ -367,10 +352,7 @@ def main(argv):
             # [R,3] where R is the number of relations
             target_lst: List[Tuple[str, str, str]] = [(s, x, o) for x in relation_lst]
 
-            assert len(target_lst) == len(test_predicate_lst if is_predicate else test_relation_lst)
-
-            # true_predicate = rel_to_predicate[r]
-            # label_lst += [int(true_predicate == rel_to_predicate[r]) for r in relation_lst]
+            assert len(target_lst) == len(test_relation_lst)
 
             # for each instance in the batch we are iterating through: [0,0,...,0,1,0,0,...,0] list
             # where 1 is at the relation that is the target relation
@@ -378,8 +360,7 @@ def main(argv):
 
             # relation embeddings of the target subject,object paired with all possible relations - R relations
             # [R,E]
-            rel_emb = encode_relation(target_lst, relation_embeddings.weight,
-                                      predicate_to_idx if is_predicate else relation_to_idx, device)
+            rel_emb = encode_relation(target_lst, relation_embeddings.weight, relation_to_idx, device)
             # target subject,object embeddings
             # [R,E],[R,E] (actually all will be the same as the subject, object doesn't change just the relations)
             arg1_emb, arg2_emb = encode_arguments(target_lst, entity_embeddings.weight, entity_to_idx, device)
@@ -474,9 +455,9 @@ def main(argv):
             res = accuracy(scoring_function=scoring_function,
                            instances=instances,
                            sample_size=sample_size,
-                           relation_lst=test_predicate_lst if is_predicate else test_relation_lst,
+                           relation_lst=test_relation_lst,
                            batch_size=test_batch_size,
-                           relation_to_predicate=relation_to_predicate if is_predicate else None,
+                           relation_to_predicate=None,
                            is_debug=is_debug)
             logger.info(f'Test Accuracy on {path}: {res:.6f}')
         return res
@@ -533,20 +514,14 @@ def main(argv):
             indices_batch = batcher.get_batch(batch_start, batch_end)
             instances_batch = [training_set[i] for i in indices_batch]
 
-            #label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
-            #TODO: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
-            if is_predicate is True:
-                label_lst: List[int] = [int(relation_to_predicate[ins.target[1]] == tp)
-                                        for ins in instances_batch
-                                        for tp in test_predicate_lst]
-            else:
-                label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
+            # label_lst: list of 1s and 0s indicating which query (==target) relation is where in the test_relation_lst
+            label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
             #returns scores of what??
             scores, query_emb_lst = scoring_function(instances_batch,
-                                                     test_predicate_lst if is_predicate else test_relation_lst,
+                                                     test_relation_lst,
                                                      is_train=True,
                                                      _depth=1 if is_simple else None)
 
@@ -581,7 +556,7 @@ def main(argv):
             if is_debug is True:
                 with torch.no_grad():
                     show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
-                               relation_to_idx=predicate_to_idx if is_predicate else relation_to_idx, device=device)
+                               relation_to_idx=relation_to_idx, device=device)
 
         loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
 
