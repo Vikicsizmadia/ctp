@@ -316,7 +316,7 @@ def main(argv):
     hops_lst = [make_hop(s) for s in hops_str] # hops_str = [2,2,1R]
 
     # "model" is a neural KB for checking whether the facts are true or not
-    # the model that does the reasoning, using the neural KB
+    # hoppy is the model that does the reasoning, using the neural KB
     hoppy = BatchHoppy(model=model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
                        hops_lst=hops_lst, R=gntp_R).to(device)
 
