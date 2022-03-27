@@ -77,14 +77,14 @@ class BatchHoppy(nn.Module):
               #  nb_entities: [batch*B], the number of entities (before padding) in each instance in each batch
               nb_entities: Tensor,
               depth:int) -> Tensor:
-        res = None
         # no reformulation
         scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts,
                                     entity_embeddings=entity_embeddings, nb_entities=nb_entities)
         # reformulation
+        scores_d = None
         if depth > 0:
             # 1 instead
-            scores_d = self.depth_r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
+            #scores_d = self.depth_r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
 
 ###1s
             batch_size, embedding_size = rel.shape[0], rel.shape[1]
@@ -107,25 +107,36 @@ class BatchHoppy(nn.Module):
                 for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
                     # [B * S, E] = [batch*B,E]
                     sources_2d = sources.view(-1, embedding_size)
+                    print(f"sources_2d shape: {sources_2d.shape}")
                     nb_sources = sources_2d.shape[0]  # B*S = batch*B
 
                     nb_branches = nb_sources // batch_size  # 1, K, K*K, ...
 
-                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)  # [batch*B,K^n,E]
-                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size)  # [batch*B*K^n,E], hop_rel multiplicated
+                    # B = batch*B, S = K^n
+                    # [B, E] --> [B, S, E] --> [B * S, N, E] --> [B * S * N, E]
+                    hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                    hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
                     if hop_idx < nb_hops:  # we are not at the last (batch of) subgoals
 
+                        # DONE?
                         #TODO: entity embeddings for other argument that's None, so that we can call prove instead of r_forward
 
                         # [B, N, E] --> [B, S, N, E]
                         all_entities_3d = entity_embeddings.view(batch_size, 1, -1, embedding_size).repeat(1, nb_branches, 1, 1)
+                        print(f"all_entities_3d shape: {all_entities_3d.shape}")
                         # [B * S * N, E]
                         all_entities_2d = all_entities_3d.view(-1, embedding_size)
+                        print(f"all_entities_2d shape: {all_entities_2d.shape}")
 
-                        # [B * S, E] --> [B * S, N, E]
+                        # [B * S, E] --> [B * S, N, E] --> [B * S * N, E]
                         new_sources_3d = sources_2d.view(-1, 1, embedding_size).repeat(1, entity_emb_max_nb, 1)
+                        print(f"new_sources_3d shape: {new_sources_3d.shape}")
                         new_sources_2d = new_sources_3d.view(-1, embedding_size)
+                        print(f"new_sources_2d shape: {new_sources_2d.shape}")
+
+                        hop_rel_3d = hop_rel_2d.view(-1, 1, embedding_size).repeat(1, entity_emb_max_nb, 1)
+                        hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
                         if is_reversed:
                             new_arg1 = all_entities_2d
@@ -136,8 +147,8 @@ class BatchHoppy(nn.Module):
 
                         # 2 instead
                         # [B * S, K], [B * S, K, E]
-                        z_scores, z_emb = self.r_hop(hop_rel_2d, new_arg1, new_arg2,
-                                                    facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        #z_scores, z_emb = self.r_hop(hop_rel_2d, new_arg1, new_arg2,
+                        #                            facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
 
 ###2s
 
@@ -152,27 +163,30 @@ class BatchHoppy(nn.Module):
                         # this gives the best scoring entity substitution's scores for each last entity embedding
                         # and from each of these the best among different Reformulators
                         # and from each of these the best among all depths<= "depth"
-                        print("r_hop calls r_forward with same depth: ", depth)
+                        #print("r_hop calls r_forward with same depth: ", depth)
                         # 3 instead
-                        scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings,
-                                                              nb_entities, depth=depth)
+                        #scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings,
+                        #                                      nb_entities, depth=depth)
 
 ###3s
+                        # [batch*B,N]
                         # one of the arguments is all entity embeddings
-                        scores = self.prove(hop_rel_2d, new_arg1, new_arg2, facts, nb_facts,
-                                            entity_embeddings, nb_entities, depth=depth - 1)
+                        new_scores = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
+                                                nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        new_scores = new_scores.view(-1, entity_emb_max_nb)
 ###3f
 
-                        print("r_forward called by r_hop returned, was called with depth: ", depth)
-                        scores = scores_sp if arg2 is None else scores_po  # [batch*B,N]
+                        #print("r_forward called by r_hop returned, was called with depth: ", depth)
+                        #scores = scores_sp if arg2 is None else scores_po  # [batch*B,N]
 
+                        print(f"scores.shape is: {new_scores.shape}")
                         k = min(self.k,
-                                scores.shape[1])  # k (default 10), N (maximum number of entities in entity_embeddings)
+                                entity_emb_max_nb) # k (default 10), N (maximum number of entities in entity_embeddings)
 
                         # z_indices indicates which embedding substitution scored in the top k
                         # [batch*B, K], [batch*B, K]
                         # chooses the top k from each row in scores
-                        z_scores, z_indices = torch.topk(scores, k=k, dim=1)
+                        z_scores, z_indices = torch.topk(new_scores, k=k, dim=1)
 
                         dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
                         dim_2 = z_indices.view(-1)
@@ -198,8 +212,10 @@ class BatchHoppy(nn.Module):
                     else:
                         # [B, S, E]
                         arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
+                        print(f"arg2_3d shape: {arg2_3d.shape}")
                         # [B * S, E]
                         arg2_2d = arg2_3d.view(-1, embedding_size)
+                        print(f"arg2_2d shape: {arg2_2d.shape}")
 
                         # [B * S]
                         if is_reversed:
@@ -208,12 +224,13 @@ class BatchHoppy(nn.Module):
                             new_arg1, new_arg2 = sources_2d, arg2_2d
 
                         # 4 instead
-                        z_scores_1d = self.r_score(hop_rel_2d, new_arg1, new_arg2,
-                                                       facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        # z_scores_1d = self.r_score(hop_rel_2d, new_arg1, new_arg2,
+                        #                             facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
 
 ###4s
-                        z_scores_1d = self.prove(hop_rel_2d, new_arg1, new_arg2,
-                                                   facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        print(f"hop_rel_2d shape: {hop_rel_2d.shape}")
+                        z_scores_1d = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
+                                                 nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
 ###4f
 
                         scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
@@ -231,7 +248,10 @@ class BatchHoppy(nn.Module):
 
             scores_d = global_res
 ###1f
-        res = torch.max(scores_0, scores_d)  # choose the one with the higher score
+        if scores_d is None:
+            res = scores_0
+        else:
+            res = torch.max(scores_0, scores_d)  # choose the one with the higher score
         return res
 
     # depth_r_score calls this with depth-1
