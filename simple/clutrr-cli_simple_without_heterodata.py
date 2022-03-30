@@ -320,7 +320,7 @@ def main():
     # "model" is a neural KB for checking whether the facts are true or not
     # hoppy is the model that does the reasoning, using the neural KB
     hoppy = BatchHoppy(model=model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
-                       hops_lst=hops_lst, R=gntp_R).to(device)
+                       hops_lst=hops_lst).to(device)
 
     def scoring_function(instances_batch: List[Instance],
                          relation_lst: List[str],

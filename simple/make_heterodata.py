@@ -100,7 +100,7 @@ class DataParser:
 
                 idx += 1
 
-            data['entity'].x = torch.arange(0, len(name_to_id)).view(len(name_to_id), 1)  # just the indices
+            data[('entity',)].x = torch.arange(0, len(name_to_id)).view(len(name_to_id), 1)  # just the indices
             for rel_type in edges.keys():
-                data['entity', rel_type, 'entity'].edge_index = torch.Tensor(edges[rel_type])
+                data[(('entity', rel_type, 'entity'),)].edge_index = torch.Tensor(edges[rel_type])
         return data, target_edges, name_to_id
