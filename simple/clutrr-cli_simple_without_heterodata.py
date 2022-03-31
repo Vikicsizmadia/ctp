@@ -19,7 +19,7 @@ from ctp.clutrr import Fact, Data, Instance, accuracy
 from simple import DataParser
 
 from ctp.clutrr.models import BatchNeuralKB
-from model_simple import BatchHoppy
+from model_simple_cleaned import BatchHoppy
 
 from ctp.reformulators import BaseReformulator
 from ctp.reformulators import StaticReformulator
@@ -159,19 +159,29 @@ def main():
 
     debug = True
 
-    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv') # "data/clutrr-emnlp/data_test/64.csv"
-    test_paths = [test_path]
+    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
+    test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
+    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
+    test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
+    test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
+    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
 
     # model params
 
     # the size of the embedding of each atom and relationship
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
-    k_max = 10
+### OTHER
+    k_max = 10 #10, 5 is suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
-    max_depth = 1
+    max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
-    test_max_depth = None
+    test_max_depth = 2
 
     # the shape of the reformulation:
     # 2: goal(X,Z) -> p(X,Y), q(Y,Z) (2 elements in the body)
@@ -179,24 +189,24 @@ def main():
     # 1R: goal(X,Z) -> s(Z,X) (variables in reversed order)
     # if we have multiple in the array, that means at each reformulation step we actually reformulate the same goal
     # multiple times according to the elements in the array (so we have more choice to get to a good proof)
-    hops_str = ['2'] # ['2', '2', '1R']
+    hops_str = ['2', '2', '2'] # ['2', '2', '1R']
 
 
     # training params
 
-    nb_epochs = 40 # 100
+    nb_epochs = 10 # 100, 5 is suggested
     learning_rate = 0.1
     # training batch size
-    batch_size = 8
+    batch_size = 32
     # testing batch size --> this can be smaller than for training
     test_batch_size = batch_size # could be other as well
 
     optimizer_name = 'adagrad' # choices = ['adagrad', 'adam', 'sgd']
 
-    seed = 0 # int
+    seed = 1 # int
 
     # how often you want to evaluate
-    evaluate_every = 1 # int
+    evaluate_every = 128 # int
     evaluate_every_batches = None # int
 
     # whether you want to regularize
@@ -219,10 +229,10 @@ def main():
 #### IGNORE --> code as well
     gntp_R = None # int
 
-    slope = None # float
+    slope = 1.0 # float
     init_size = 1.0 # float
 
-    init_type = 'uniform'
+    init_type = 'random'  # 'uniform'
     ref_init_type = 'random'
 
 #### IGNORE

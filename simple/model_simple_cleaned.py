@@ -137,6 +137,9 @@ class BatchHoppy(nn.Module):
         # no reformulation
 
         # [B]
+        print(f"shape of rel: {rel.shape}")
+        print(f"shape of arg1: {arg1.shape}")
+        print(f"shape of arg2: {arg2.shape}")
         scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts,
                                     entity_embeddings=entity_embeddings, nb_entities=nb_entities)
 
@@ -146,13 +149,19 @@ class BatchHoppy(nn.Module):
         if depth > 0:
 
             # batch_size: B, embedding_size: E, entity_emb_max_nb: N
-            batch_size, embedding_size, entity_emb_max_nb = rel.shape[0], rel.shape[1], entity_embeddings.shape[1]
+            batch_size, embedding_size = rel.shape[0], rel.shape[1]
+            entity_emb_max_nb = entity_embeddings.shape[1]
+
+            # need to have the entity_embeddings of the same batch size as rel
+            entity_embeddings, _ = uniform(rel, entity_embeddings)
 
             global_res = None
 
             # enumerate H times: each is 1 Reformulator (hops_generator)
             for rule_idx, (hops_generator, is_reversed) in enumerate(self.hops_lst):
                 sources, scores = arg1, None  # sources: [B,E]
+
+                print(f"at Reformulator {rule_idx}")
 
                 # generates the new subgoals with the current reformulator
                 # --> applies the transformator to each instance in the batches
@@ -172,26 +181,38 @@ class BatchHoppy(nn.Module):
                     hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                     hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
+                    print(f"at subgoal {hop_idx}")
+
                     if hop_idx < nb_hops:  # we are not at the last (batch of) subgoals
                         # [B, N, E] --> [B, S, N, E] --> [B * S * N, E]
+                        print("not last iteration")
+                        print(f"shape of entity_embeddings (new_arg2): {entity_embeddings.shape}")
                         all_entities_3d = entity_embeddings.view(batch_size, 1, -1, embedding_size).repeat(1, nb_branches, 1, 1)
+                        print(f"shape of all_entities_3d (new_arg2): {all_entities_3d.shape}")
                         all_entities_2d = all_entities_3d.view(-1, embedding_size)
+                        print(f"shape of all_entities_2d (new_arg2): {all_entities_2d.shape}")
 
                         # [B * S, E] --> [B * S, N, E] --> [B * S * N, E]
                         new_sources_3d = sources_2d.view(-1, 1, embedding_size).repeat(1, entity_emb_max_nb, 1)
                         new_sources_2d = new_sources_3d.view(-1, embedding_size)
 
                         # [B * S, E] --> [B * S, N, E] --> [B * S * N, E]
+                        print(f"original shape of hop_rel_2d: {hop_rel_2d.shape}")
                         hop_rel_3d = hop_rel_2d.view(-1, 1, embedding_size).repeat(1, entity_emb_max_nb, 1)
+                        print(f"shape of hop_rel_3d: {hop_rel_3d.shape}")
                         hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
                         if is_reversed:
                             new_arg1, new_arg2 = all_entities_2d, new_sources_2d
                         else:
+                            print("not reversed")
                             new_arg1, new_arg2 = new_sources_2d, all_entities_2d
 
                         # one of the arguments is all entity embeddings
                         # [B * S, N]
+                        print(f"new shape of hop_rel_2d: {hop_rel_2d.shape}")
+                        print(f"shape of new_arg1: {new_arg1.shape}")
+                        print(f"shape of new_arg2: {new_arg2.shape}")
                         new_scores = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
                                                 nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                         new_scores = new_scores.view(-1, entity_emb_max_nb)
@@ -226,6 +247,7 @@ class BatchHoppy(nn.Module):
                         scores = z_scores_1d if scores is None \
                             else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
                     else:
+                        print("last iteration")
                         # [B, E] --> [B, S, E] --> [B * S, E]
                         arg2_3d = arg2.view(-1, 1, embedding_size).repeat(1, nb_branches, 1)
                         arg2_2d = arg2_3d.view(-1, embedding_size)
@@ -238,6 +260,9 @@ class BatchHoppy(nn.Module):
 
                         # one of the arguments is the arg2 entities from the query
                         # [B * S]
+                        print(f"last subgoals shape of hop_rel_2d: {hop_rel_2d.shape}")
+                        print(f"shape of new_arg1: {new_arg1.shape}")
+                        print(f"shape of new_arg2: {new_arg2.shape}")
                         z_scores_1d = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
                                                  nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
 
