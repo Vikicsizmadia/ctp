@@ -157,7 +157,7 @@ def encode_entities(facts: List[Fact],
 
 def main():
 
-    debug = True
+    debug = False
 
     train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
     test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')

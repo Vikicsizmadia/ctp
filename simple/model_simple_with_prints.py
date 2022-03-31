@@ -274,7 +274,7 @@ class BatchHoppy(nn.Module):
               # [batch*B], the number of entities (before padding) in each instance in each batch
               nb_entities: Tensor, # [B], the number of entities in each instance of the batch
               depth: int) -> Tuple[Tensor, Tensor]:
-
+        print("r_hop was called with depth: ", depth)
         assert (arg1 is None) ^ (arg2 is None)
         assert depth >= 0
 
@@ -293,7 +293,9 @@ class BatchHoppy(nn.Module):
         # this gives the best scoring entity substitution's scores for each last entity embedding
         # and from each of these the best among different Reformulators
         # and from each of these the best among all depths<= "depth"
+        print("r_hop calls r_forward with same depth: ", depth)
         scores_sp, scores_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=depth)
+        print("r_forward called by r_hop returned, was called with depth: ", depth)
         scores = scores_sp if arg2 is None else scores_po # [batch*B,N]
 
         k = min(self.k, scores.shape[1]) # k (default 10), N (maximum number of entities in entity_embeddings)
@@ -302,6 +304,7 @@ class BatchHoppy(nn.Module):
         # [batch*B, K], [batch*B, K]
         # chooses the top k from each row in scores
         z_scores, z_indices = torch.topk(scores, k=k, dim=1)
+        print("top k taken of scores calulated by r_forward")
 
         dim_1 = torch.arange(z_scores.shape[0], device=z_scores.device).view(-1, 1).repeat(1, k).view(-1)
         dim_2 = z_indices.view(-1)
@@ -314,6 +317,7 @@ class BatchHoppy(nn.Module):
         assert z_emb.shape[0] == batch_size
         assert z_emb.shape[2] == embedding_size
 
+        print("final scores are getting returned from r_hop")
         return z_scores, z_emb # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
 
     #called from clutrr-cli.py
@@ -339,7 +343,10 @@ class BatchHoppy(nn.Module):
               # so nb_entities indicates the original number of entities
               #  nb_entities: [batch*B], the number of entities (before padding) in each instance in each batch
               nb_entities: Tensor) -> Tensor:
+        print('BatchHoppy.score called')
+        print('BatchHoppy.score calls r_score with depth: ', self.depth)
         res = self.r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=self.depth)
+        print('BatchHoppy.score received r_score')
         return res
 
     def r_score(self,
@@ -350,8 +357,11 @@ class BatchHoppy(nn.Module):
                 nb_entities: Tensor,
                 depth: int) -> Tensor:
         res = None
+        print('r_score calls depth_r_score with all depths smaller than or equal to ', depth)
         for d in range(depth + 1): # try all possible depths that are no deeper than "depth"
+            print('depth_r_score called with depth: ', d)
             scores = self.depth_r_score(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
+            print('depth_r_score returned with depth: ', d)
             res = scores if res is None else torch.max(res, scores) # choose the one with the highest score
         return res
 
@@ -365,6 +375,7 @@ class BatchHoppy(nn.Module):
         assert depth >= 0
 
         if depth == 0:
+            print('depth_r_score with depth 0 calls model.score (BatchNeuralKB)')
             return self.model.score(rel, arg1, arg2,
                                     facts=facts, nb_facts=nb_facts,
                                     entity_embeddings=entity_embeddings, nb_entities=nb_entities)
@@ -381,35 +392,43 @@ class BatchHoppy(nn.Module):
         new_hops_lst = self.hops_lst
 
         # enumerate H times: each is 1 Reformulator (hops_generator)
+        print('depth_r_score enumerates through new_hops_lst: ', new_hops_lst)
         for rule_idx, (hops_generator, is_reversed) in enumerate(new_hops_lst):
             sources, scores = arg1, None # sources: [batch*B,E]
+            print("depth_r_score current hops_generator: ", hops_generator)
 
             # generates the new subgoals with the current reformulator
             # --> applies the transformator to each instance in the batch
             hop_rel_lst = hops_generator(rel) # [nb_hops,batch*B,E]
             nb_hops = len(hop_rel_lst) # usually: 2 (or 1)
+            print("new subgoals generated, their number is: ", nb_hops)
 
             # enumerate through the newly generated subgoals
             # hop_rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches
+            print('enumerating through the new subgoals')
             for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1):
+                print('current subgoal number is: ', hop_idx)
                 # [B * S, E] = [batch*B,E]
                 sources_2d = sources.view(-1, embedding_size)
                 nb_sources = sources_2d.shape[0] # B*S = batch*B
 
 
                 nb_branches = nb_sources // batch_size # 1, K, K*K, ...
+                print('number of branches: ', nb_branches)
 
                 hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1) # [batch*B,1,E]
                 hop_rel_2d = hop_rel_3d.view(-1, embedding_size) # [batch*B,E], same as hop_rel
 
                 if hop_idx < nb_hops: # we are not at the last (batch of) subgoals
                     # [B * S, K], [B * S, K, E]
+                    print("we are not at the last subgoal, so depth_r_score calls r_hop with depth-1: ", depth-1)
                     if is_reversed:
                         z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
                                                      facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                     else:
                         z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
                                                      facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                    print("depth_r_score received the result from r_hop called with depth: ", depth-1)
                     k = z_emb.shape[1]
 
                     # [B * S * K]
@@ -429,24 +448,31 @@ class BatchHoppy(nn.Module):
                     arg2_2d = arg2_3d.view(-1, embedding_size)
 
                     # [B * S]
+                    print("we are at the last subgoal, so depth_r_score calls r_score with depth-1: ", depth - 1)
                     if is_reversed:
                         z_scores_1d = self.r_score(hop_rel_2d, arg2_2d, sources_2d,
                                                    facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                     else:
                         z_scores_1d = self.r_score(hop_rel_2d, sources_2d, arg2_2d,
                                                    facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                    print("depth_r_score received the result from r_score called with depth: ", depth - 1)
                     scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
 
+            print("finished enumerating through the new subgoals with current reformulator")
             if scores is not None:
                 scores_2d = scores.view(batch_size, -1)
                 res, _ = torch.max(scores_2d, dim=1)
             else:
+                print("scores was None, so model.score gets called")
                 res = self.model.score(rel, arg1, arg2,
                                        facts=facts, nb_facts=nb_facts,
                                        entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+                print("model.score returned")
 
             global_res = res if global_res is None else torch.max(global_res, res)
+            print("updated global result score")
 
+        print("final depth_r_score result calculated")
         return global_res
 
     def forward(self,
@@ -455,7 +481,11 @@ class BatchHoppy(nn.Module):
                 nb_facts: Tensor,
                 entity_embeddings: Tensor,
                 nb_entities: Tensor) -> Tuple[Optional[Tensor], Optional[Tensor]]:
+        print("forward called")
+        print("forward calls r_forward with depth: ", self.depth)
         res_sp, res_po = self.r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=self.depth)
+        print("r_forward returned to forward called with depth: ", self.depth)
+        print("result scores are getting returned by forward")
         return res_sp, res_po
 
     # called by r_hop with same depth (depth_r_score depth-1)
@@ -478,18 +508,24 @@ class BatchHoppy(nn.Module):
                   nb_entities: Tensor,  # [B], the number of entities in each instance of the batch
                   # same depth as r_hop
                   depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]:
+        print("r_forward was called with depth: ", depth)
         res_sp, res_po = None, None
+        print("r_forward iterates through depths no larger than given depth, each time calls depth_r_forward")
         for d in range(depth + 1): # iterate through all possible depths no larger than "depth"
             # [B,N], [B,N]
             # this gives the best scoring entity substitution's scores for each last entity embedding
             # and from each of these the best among different Reformulators
+            print("r_forward calls depth_r_forward with depth: ", d)
             scores_sp, scores_po = self.depth_r_forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities, depth=d)
+            print("depth_r_forward returned to r_forward, was called with depth: ", d)
             res_sp = scores_sp if res_sp is None else torch.max(res_sp, scores_sp) # gives back from each element the max of the 2 tensors
             res_po = scores_po if res_po is None else torch.max(res_po, scores_po)
+            print("received scores are updated with torch.max")
         # [B,N], [B,N]
         # this gives the best scoring entity substitution's scores for each last entity embedding
         # and from each of these the best among different Reformulators
         # and from each of these the best among all depths
+        print("scores are getting returned from r_forward that was called with depth: ", depth)
         return res_sp, res_po
 
 
@@ -506,6 +542,7 @@ class BatchHoppy(nn.Module):
                         nb_entities: Tensor,
                         depth: int) -> Tuple[Optional[Tensor], Optional[Tensor]]: #result: [B,N],[B,N]
 
+        print("depth_r_forward called with depth: ", depth)
         # batch_size: batch*B
         # embedding_size: E
         batch_size, embedding_size = rel.shape[0], rel.shape[1]
@@ -514,6 +551,7 @@ class BatchHoppy(nn.Module):
         # --> does this for every entity embedding inserted in the place of 1 of the two arguments
         # [B,N]: entity embedding inserted in the place of the 2nd argument, [B,N]: -"- of the 1st argument
         if depth == 0:
+            print("depth_r_forward with depth 0 calls model.forward (BatchNeuralKB) and returns the received scores")
             return self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities) #score_sp, score_po
 
         global_scores_sp = global_scores_po = None
@@ -550,24 +588,30 @@ class BatchHoppy(nn.Module):
 
         # runs H times through H BaseReformulators (any subclass) --> hop_generators is 1 BaseReformulator
         # rule_idx is the number of which BR we are currently at
+        print("depth_r_forward enumerates through new_hops_lst: ", new_hops_lst)
         for rule_idx, (hop_generators, is_reversed) in enumerate(new_hops_lst):
+            print("depth_r_forward current hop_generator: ", hop_generators)
             scores_sp = scores_po = None
             # rel: [batch * B, E]
             # generates the new subgoals with the current reformulator
             # --> applies the transformator to each instance in the batch
             hop_rel_lst = hop_generators(rel) # [nb_hops,batch*B,E], only need rel for the batch dimension in some cases
             nb_hops = len(hop_rel_lst)
+            print("new subgoals generated, their number is: ", nb_hops)
 
 
             # either arg1 or arg2 will be None!
             if arg1 is not None:
+                print("arg1 is not None")
                 # new:
                 # sources: [branch*B,E]
                 sources, scores = arg1, None # sources: [B,branches,E], where branches (=S) are the number of branches in an instance
 
                 # enumerate through the newly generated subgoals
                 # hop_rel: [batch*B,E] - 1st (then 2nd, 3rd,...) subgoal for each of the target relations in all the batches
+                print("enumerating through the new subgoals")
                 for hop_idx, hop_rel in enumerate(hop_rel_lst, start=1): # iterates nb_hops times (which is usually 2)
+                    print("current subgoal number is: ", hop_idx)
                     # [B * S, E], where S is the number of branches
                     # new: [branch*B,E] then later [batch * B * K, E]
                     sources_2d = sources.view(-1, embedding_size) # flat out 3d sources
@@ -583,12 +627,14 @@ class BatchHoppy(nn.Module):
                     if hop_idx < nb_hops: # if we are not at the last subgoal
                         # [B * S, K], [B * S, K, E]
                         # z_scores: [batch*B,K], z_emb: [batch*B,K,E]
+                        print("we are not at the last subgoal, so depth_r_forward calls r_hop with depth-1: ", depth - 1)
                         if is_reversed:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                         else:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        print("depth_r_forward received the result from r_hop called with depth: ", depth - 1)
                         k = z_emb.shape[1] # k
 
                         # [B * S * K]
@@ -607,15 +653,18 @@ class BatchHoppy(nn.Module):
                         # takes the minimum (if that's tnorm) of the embedding substitution scores
                         scores = z_scores_1d if scores is None \
                             else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                        print("took the min of new scores and the previous subgoals' minimum score (with _tnorm)")
                     else:
                         # [B * S, N]
                         # scores_sp: [batch*B,N]
+                        print("we are at the last subgoal, so depth_r_forward calls r_forward with depth-1: ", depth - 1)
                         if is_reversed:
                             _, scores_sp = self.r_forward(hop_rel_2d, None, sources_2d,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                         else:
                             scores_sp, _ = self.r_forward(hop_rel_2d, sources_2d, None,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        print("depth_r_forward received the result from r_forward called with depth: ", depth - 1)
                         # difference between r_hop and r_forward is that r_hop takes only the top k scores,
                         # while r_forward gives back all scores
 
@@ -625,13 +674,16 @@ class BatchHoppy(nn.Module):
                             scores = scores.view(-1, 1).repeat(1, nb_entities_)
                             # now comparing entity substitution top k scores with all possible entity subst. scores
                             scores_sp = self._tnorm(scores, scores_sp) # (usually) taking the min of them (minimum of all embedding similarities)
+                            print("took the min of new scores and the previous subgoal's minimum score (with _tnorm)")
                             # [B, S, N], where S = K^(nb_hops-1)
                             scores_sp = scores_sp.view(batch_size, -1, nb_entities_)
                             # [B, N]
                             # this gives the best scoring entity substitution's scores for each last entity embedding
                             scores_sp, _ = torch.max(scores_sp, dim=1) # taking only the max from the branches (maximum of all proof scores)s
+                            print("took the max scores of the branches in the batches: scores_sp")
 
             if arg2 is not None:
+                print("arg2 is not None")
                 sources, scores = arg2, None
 
 # TO DELETE
@@ -640,7 +692,9 @@ class BatchHoppy(nn.Module):
 #                    scores = prior
                 # scores = hop_generators.prior(rel)
 
+                print("enumerating through the new subgoals but starting from the last one")
                 for hop_idx, hop_rel in enumerate(reversed([h for h in hop_rel_lst]), start=1):
+                    print("current subgoal number is: ", hop_idx)
                     # [B * S, E]
                     sources_2d = sources.view(-1, embedding_size)
                     nb_sources = sources_2d.shape[0]
@@ -651,6 +705,7 @@ class BatchHoppy(nn.Module):
                     hop_rel_2d = hop_rel_3d.view(-1, embedding_size)
 
                     if hop_idx < nb_hops:
+                        print("we are not at the last subgoal, so depth_r_forward calls r_hop with depth-1: ", depth - 1)
                         # [B * S, K], [B * S, K, E]
                         if is_reversed:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, sources_2d, None,
@@ -658,6 +713,7 @@ class BatchHoppy(nn.Module):
                         else:
                             z_scores, z_emb = self.r_hop(hop_rel_2d, None, sources_2d,
                                                          facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        print("depth_r_forward received the result from r_hop called with depth: ", depth - 1)
                         k = z_emb.shape[1]
 
                         # [B * S * K]
@@ -670,45 +726,59 @@ class BatchHoppy(nn.Module):
                         # [B * S * K]
                         scores = z_scores_1d if scores is None \
                             else self._tnorm(z_scores_1d, scores.view(-1, 1).repeat(1, k).view(-1))
+                        print("took the min of new scores and the previous subgoals' minimum score (with _tnorm)")
                     else:
                         # [B * S, N]
+                        print("we are at the last subgoal, so depth_r_forward calls r_forward with depth-1: ", depth - 1)
                         if is_reversed:
                             scores_po, _ = self.r_forward(hop_rel_2d, sources_2d, None,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
                         else:
                             _, scores_po = self.r_forward(hop_rel_2d, None, sources_2d,
                                                           facts, nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                        print("depth_r_forward received the result from r_forward called with depth: ", depth - 1)
                         nb_entities_ = scores_po.shape[1]
 
                         if scores is not None:
                             scores = scores.view(-1, 1).repeat(1, nb_entities_)
                             scores_po = self._tnorm(scores, scores_po)
+                            print("took the min of new scores and the previous subgoal's minimum score (with _tnorm)")
                             # [B, S, N]
                             scores_po = scores_po.view(batch_size, -1, nb_entities_)
                             # [B, N]
                             # this gives the best scoring entity substitution's scores for each last entity embedding
                             scores_po, _ = torch.max(scores_po, dim=1)
+                            print("took the max scores of the branches in the batches: scores_po")
 
             if scores_sp is None and scores_po is None:
+                print("both scores_sp and scores_po is None")
+                print("depth_r_forward calls model.forward (BatchNeuralKB)")
                 scores_sp, scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+                print("depth_r_forward receives result from model.forward")
 
             # here we have the scores for running 1 Reformulator at the current depth
             # --> we have to compare this score with previous Reformulator score --> keep the best for each
             # [B,N]
             # this gives the best scoring entity substitution's scores for each last entity embedding
             # and from each of these the best among different Reformulators
+            print("depth_r_forward at the end of 1 enumeration through new_hops_lst takes the max global score so far (torch.max)")
             global_scores_sp = scores_sp if global_scores_sp is None else torch.max(global_scores_sp, scores_sp)
             global_scores_po = scores_po if global_scores_po is None else torch.max(global_scores_po, scores_po)
 
         if global_scores_sp is None and global_scores_po is None:
+            print("both global_scores_sp and global_scores_po are None, so depth_r_forward calls model.forward (BatchNeuralKB)")
             global_scores_sp, global_scores_po = self.model.forward(rel, arg1, arg2, facts, nb_facts, entity_embeddings, nb_entities)
+            print("depth_r_forward receives result scores from model.forward")
 
+        print("depth_r_forward returns final scores")
         return global_scores_sp, global_scores_po
 
     def factor(self,
                embedding_vector: Tensor) -> Tensor:
+        print("factor function was called")
         return self.model.factor(embedding_vector)
 
     def extra_factors(self,
                       rel: Tensor, arg1: Optional[Tensor], arg2: Optional[Tensor]) -> List[Tensor]:
+        print("extra_factors function was called")
         return [hop_generator(rel) for hop_generators in self.hops_lst for hop_generator in hop_generators]

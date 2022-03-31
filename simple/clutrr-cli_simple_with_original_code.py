@@ -157,9 +157,9 @@ def encode_entities(facts: List[Fact],
 
 def main():
 
-    debug = True
+    debug = False
 
-    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
+    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
     test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
     test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
     test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
@@ -177,7 +177,7 @@ def main():
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
 ### OTHER
-    k_max = 10 #10, 5 in suggested
+    k_max = 5 #10, 5 in suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
     max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training

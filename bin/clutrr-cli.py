@@ -155,13 +155,30 @@ def encode_entities(facts: List[Fact],
 
 def main(argv):
     argparser = argparse.ArgumentParser('CLUTRR', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # -S 1 -s concat -V 128 -b 32 -d 2 --test-max-depth 5 --hops 2 2 2 -e 5 -o adagrad -l 0.1 --init random --ref-init
+    # random -m 5 -t min -k 20 -i 1.0 -r linear -R 0 --seed 1
+    # train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
+    # "data/clutrr-emnlp/data_test/64.csv"
 
-    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv') # "data/clutrr-emnlp/data_test/64.csv"
+    train_path = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04',
+                                  '1.2,1.3,1.4_train.csv')
+    test_path1 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
+    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
+    test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
+    test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
+    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8,
+                  test_path9]
+
 
     # dataset path to the csv file we want to train on
     argparser.add_argument('--train', action='store', type=str, default=train_path)
     # dataset path to the csv file we want to test on (1 or more test sets)
-    argparser.add_argument('--test', nargs='+', type=str, default=[test_path])
+    argparser.add_argument('--test', nargs='+', type=str, default=test_paths)  # default=[test_path]
 
     # model params
 
