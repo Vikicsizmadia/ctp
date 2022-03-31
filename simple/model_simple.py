@@ -412,8 +412,9 @@ class BatchHoppy(nn.Module):
                 sources_2d = sources.view(-1, embedding_size)
                 nb_sources = sources_2d.shape[0] # B*S = batch*B
 
-                print('number of branches: ', nb_branches)
+
                 nb_branches = nb_sources // batch_size # 1, K, K*K, ...
+                print('number of branches: ', nb_branches)
 
                 hop_rel_3d = hop_rel.view(-1, 1, embedding_size).repeat(1, nb_branches, 1) # [batch*B,1,E]
                 hop_rel_2d = hop_rel_3d.view(-1, embedding_size) # [batch*B,E], same as hop_rel
