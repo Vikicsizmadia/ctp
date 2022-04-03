@@ -16,18 +16,20 @@ class DataParser:
     def __init__(self,
                  train_path: str = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp',
                                         'data_089907f8', '1.2,1.3_train.csv'),
-                 test_paths: Optional[List[str]] = None):
+                 test_paths: Optional[List[str]] = None,
+                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
 
 ### Needed?
-        with open(join(dirname(dirname(dirname(abspath(__file__)))), "data", "clutrr-emnlp", "relations_store.yaml"),
-                  'r') as f:
+        with open(join(dirname(dirname(abspath(__file__))), "data", "clutrr-emnlp", "relations_store.yaml"), 'r') as f:
             rs = yaml.safe_load(f)
         self.relation_to_predicate = {r['rel']: k for k, v in rs.items()
                                       for _, r in v.items() if k != 'no-relation'}
         self.relation_lst = sorted({r for r in self.relation_to_predicate.keys()})
 ###
+        self.device = device
 
-        (self._train_graph, self._train_nodes_ids, self._train_edge_classes, new_idx) = DataParser.parse(train_path, 0)
+        (self._train_graph, self._train_nodes_ids, self._train_edge_classes, new_idx) = \
+            DataParser.parse(train_path, 0, self.device)
         entity_set = set(self.train_nodes_ids.keys())
 
         self._test_graphs = OrderedDict()
@@ -35,7 +37,7 @@ class DataParser:
         self._test_edge_classes = OrderedDict()
         for test_path in (test_paths if test_paths is not None else []):
             (self._test_graphs[test_path], self._test_nodes_ids[test_path],
-             self._test_edge_classes[test_path], new_idx) = DataParser.parse(test_path, new_idx)
+             self._test_edge_classes[test_path], new_idx) = DataParser.parse(test_path, new_idx, self.device)
             entity_set |= set(self.test_nodes_ids[test_path].keys())
 
         self.entity_lst = sorted(entity_set)
@@ -73,7 +75,7 @@ class DataParser:
     # returning the graph (with target edges as well), the node names corresponding to their ids in the graph
     # and edge types (relations) corresponding to their class ids
     @staticmethod
-    def parse(path: str, idx: int) -> (HeteroData, Dict[str, int], Dict[str, int]):
+    def parse(path: str, idx: int, device) -> (HeteroData, Dict[str, int], Dict[str, int]):
         data = HeteroData()
         with open(path, newline='') as f:
             reader = csv.reader(f)
@@ -84,10 +86,12 @@ class DataParser:
             edge_types_to_class = {} # dictionary to collect relation types to corresponding class ids
             # target_edges = {}  # dictionary for collecting target edges (edge_type : [[subject_nodes],[object_nodes]])
             for row in reader:
+                if len(name_to_id) > 5000:
+                    break
                 _id, _, _, query, _, target, _, _, _, _, _, story_edges, edge_types, _, genders, _, tmp, _ = row
                 if len(_id) > 0:
-                    add_to_id = len(
-                        name_to_id)  # this many entities we have so far, so subsequent entities are numbered from there
+                    # this many entities we have so far, so subsequent entities are numbered from there
+                    add_to_id = len(name_to_id)
                     name_to_id |= {name.split(':')[0] + str(idx): (i + add_to_id) for i, name in
                                    enumerate(genders.split(','))}
                     _story, _edge, _query = DataParser._to_obj(story_edges), DataParser._to_obj(edge_types), DataParser._to_obj(query)
@@ -98,13 +102,18 @@ class DataParser:
                         edges[1].append(o_id + add_to_id)
                         labels.append(edge_types_to_class[p])
                     edges[0].append(name_to_id[_query[0]+str(idx)])
-                    edges[1].append(name_to_id[_query[1]])
+                    edges[1].append(name_to_id[_query[1]+str(idx)])
+                    if target not in edge_types_to_class.keys():
+                        edge_types_to_class[target] = len(edge_types_to_class)  # next id
                     labels.append(edge_types_to_class[target])
 
                 idx += 1
 
-            data[('entity',)].x = torch.eye(len(name_to_id))
-            # torch.arange(0, len(name_to_id)).view(len(name_to_id), 1)  # just the indices
-            data[(('entity', 'rel', 'entity'),)].edge_index = torch.Tensor(edges)
-            data[(('entity', 'rel', 'entity'),)].edge_label = torch.Tensor(labels)
+            data['entity'].x = torch.eye(len(name_to_id), device=device)
+            # data['entity'].x = torch.arange(0, len(name_to_id)).view(len(name_to_id), 1)  # just the indices
+            data['entity', 'rel', 'entity'].edge_index = torch.tensor(edges, dtype=torch.long, device=device)
+            data['entity', 'rel', 'entity'].edge_label = torch.tensor(labels, dtype=torch.long, device=device)
+
+            #data = HeteroData({'entity_rel_entity': {'edge_index': torch.Tensor(edges),
+            #                                         'edge_label': torch.Tensor(labels)}})
         return data, name_to_id, edge_types_to_class, idx

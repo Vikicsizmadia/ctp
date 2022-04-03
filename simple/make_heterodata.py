@@ -20,7 +20,7 @@ class DataParser:
                  test_paths: Optional[List[str]] = None):
 
 ### Needed?
-        with open(join(dirname(dirname(dirname(abspath(__file__)))), "data", "clutrr-emnlp", "relations_store.yaml"),
+        with open(join(dirname(dirname(abspath(__file__))), "data", "clutrr-emnlp", "relations_store.yaml"),
                   'r') as f:
             rs = yaml.safe_load(f)
         self.relation_to_predicate = {r['rel']: k for k, v in rs.items()

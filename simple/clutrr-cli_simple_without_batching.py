@@ -19,7 +19,7 @@ from ctp.clutrr import Fact, Data, Instance, accuracy
 from simple import DataParser
 
 from ctp.clutrr.models import BatchNeuralKB
-from model_simple import BatchHoppy
+from model_simple_cleaned import BatchHoppy
 
 from ctp.reformulators import BaseReformulator
 from ctp.reformulators import StaticReformulator
@@ -155,23 +155,33 @@ def encode_entities(facts: List[Fact],
     return emb
 
 
-def main(argv):
+def main():
 
-    debug = True
+    debug = False
 
-    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv') # "data/clutrr-emnlp/data_test/64.csv"
-    test_paths = [test_path]
+    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
+    test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
+    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
+    test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
+    test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
+    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
 
     # model params
 
     # the size of the embedding of each atom and relationship
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
-    k_max = 10
+### OTHER
+    k_max = 10 #10, 5 is suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
-    max_depth = 1
+    max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
-    test_max_depth = None
+    test_max_depth = 2
 
     # the shape of the reformulation:
     # 2: goal(X,Z) -> p(X,Y), q(Y,Z) (2 elements in the body)
@@ -179,24 +189,26 @@ def main(argv):
     # 1R: goal(X,Z) -> s(Z,X) (variables in reversed order)
     # if we have multiple in the array, that means at each reformulation step we actually reformulate the same goal
     # multiple times according to the elements in the array (so we have more choice to get to a good proof)
-    hops_str = ['2'] # ['2', '2', '1R']
+    hops_str = ['2', '2', '2'] # ['2', '2', '1R']
 
 
     # training params
 
-    nb_epochs = 1 # 100
-    learning_rate = 0.1
+### OTHER
+    nb_epochs = 20 # 100, 5 is suggested
+### OTHER
+    learning_rate = 0.01 #0.1 is suggested
     # training batch size
-    batch_size = 8
+    batch_size = 32
     # testing batch size --> this can be smaller than for training
     test_batch_size = batch_size # could be other as well
 
     optimizer_name = 'adagrad' # choices = ['adagrad', 'adam', 'sgd']
 
-    seed = 0 # int
+    seed = 1 # int
 
     # how often you want to evaluate
-    evaluate_every = 1 # int
+    evaluate_every = 128 # int
     evaluate_every_batches = None # int
 
     # whether you want to regularize
@@ -219,10 +231,10 @@ def main(argv):
 #### IGNORE --> code as well
     gntp_R = None # int
 
-    slope = None # float
+    slope = 1.0 # float
     init_size = 1.0 # float
 
-    init_type = 'uniform'
+    init_type = 'random'  # 'uniform'
     ref_init_type = 'random'
 
 #### IGNORE
@@ -259,7 +271,7 @@ def main(argv):
 
 # Initializing data and embeddings
 
-    data = DataParser(train_path=train_path, test_paths=test_paths)
+    data = Data(train_path=train_path, test_paths=test_paths)
     entity_lst, relation_lst = data.entity_lst, data.relation_lst
 
     test_relation_lst = ["aunt", "brother", "daughter", "daughter-in-law", "father", "father-in-law", "granddaughter",
@@ -307,12 +319,12 @@ def main(argv):
         assert res is not None
         return res.to(device), is_reversed
 
-    hops_lst = [make_hop(s) for s in hops_str] # hops_str = [2,2,1R]
+    hops_lst = [make_hop(s) for s in hops_str]  # hops_str = [2,2,1R]
 
     # "model" is a neural KB for checking whether the facts are true or not
     # hoppy is the model that does the reasoning, using the neural KB
     hoppy = BatchHoppy(model=model, k=k_max, depth=max_depth, tnorm_name=tnorm_name,
-                       hops_lst=hops_lst, R=gntp_R).to(device)
+                       hops_lst=hops_lst).to(device)
 
     def scoring_function(instances_batch: List[Instance],
                          relation_lst: List[str],
@@ -334,7 +346,7 @@ def main(argv):
         for i, instance in enumerate(instances_batch):
 
             story, target = instance.story, instance.target
-            s, r, o = target # 1 target relation
+            s, r, o = target  # 1 target relation
 
             # the relation embeddings from all facts (==story)
             # [F,E], where F is the number of facts
@@ -353,6 +365,9 @@ def main(argv):
 
             assert len(target_lst) == len(test_relation_lst)
 
+            # true_predicate = rel_to_predicate[r]
+            # label_lst += [int(true_predicate == rel_to_predicate[r]) for r in relation_lst]
+
             # for each instance in the batch we are iterating through: [0,0,...,0,1,0,0,...,0] list
             # where 1 is at the relation that is the target relation
             label_lst += [int(tr == r) for tr in relation_lst]
@@ -364,9 +379,9 @@ def main(argv):
             # [R,E],[R,E] (actually all will be the same as the subject, object doesn't change just the relations)
             arg1_emb, arg2_emb = encode_arguments(target_lst, entity_embeddings.weight, entity_to_idx, device)
 
-            batch_size = rel_emb.shape[0] # R - the number of relations --> B from now on
-            fact_size = story_rel.shape[0] # F - the number of facts in "story"
-            entity_size = embeddings.shape[0] # N - the number of different entities in the facts (=="story")
+            batch_size = rel_emb.shape[0]  # R - the number of relations --> B from now on
+            fact_size = story_rel.shape[0]  # F - the number of facts in "story"
+            entity_size = embeddings.shape[0]  # N - the number of different entities in the facts (=="story")
 
             # [B, E]
             # at each instance in the batch we add [B,E] to it (B==R)
@@ -405,13 +420,14 @@ def main(argv):
             # [batch*B,F,E], where each F is the same (sometimes padded with extra 0 embeddings to reach that)
             # OR
             # [batch*B,N,E], where each N is the same (sometimes padded with extra 0 embeddings to reach that)
-            res_t: Tensor = torch.cat([my_pad(t, pad=[0, max_len - lengths[idx]]) for idx, t in enumerate(t_lst)], dim=0)
+            res_t: Tensor = torch.cat([my_pad(t, pad=[0, max_len - lengths[idx]]) for idx, t in enumerate(t_lst)],
+                                      dim=0)
             # [batch*B], the number of facts (before padding) in an instance
             # OR
             # [batch*B], the number of entities (before padding) in an instance
             res_l: Tensor = torch.tensor([t.shape[1] for t in t_lst for _ in range(t.shape[0])],
                                          dtype=torch.long, device=device)
-            return res_t, res_l # [batch*B,F,E],[batch*B] OR [batch*B,N,E],[batch*B]
+            return res_t, res_l  # [batch*B,F,E],[batch*B] OR [batch*B,N,E],[batch*B]
 
         # [batch*B,E], where batch is number of batches & B is batch_size that is number of relations
         rel_emb = torch.cat(rel_emb_lst, dim=0)
@@ -420,10 +436,10 @@ def main(argv):
 
         # story_rel,story_arg1,story_arg2: [batch*B,F,E], where each F is the same (sometimes padded with extra 0 embeddings to reach that)
         # nb_facts: [batch*B], the number of facts (before padding) in each instance
-        story_rel, nb_facts = cat_pad(story_rel_lst) # story_rel_lst: [batch,B,F,E]
+        story_rel, nb_facts = cat_pad(story_rel_lst)  # story_rel_lst: [batch,B,F,E]
         story_arg1, _ = cat_pad(story_arg1_lst)
         story_arg2, _ = cat_pad(story_arg2_lst)
-        facts = [story_rel, story_arg1, story_arg2] # [3,batch*B,F,E]
+        facts = [story_rel, story_arg1, story_arg2]  # [3,batch*B,F,E]
 
         # _embeddings: [batch*B,N,E], where each N is the same (sometimes padded with extra 0 embeddings to reach that)
         # nb_embeddings: [batch*B], the number of entities (before padding) in each instance
@@ -436,13 +452,15 @@ def main(argv):
         if _depth is not None:
             hoppy.depth = _depth
 
-        scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings)
+        # trying hoppy.prove instead
+        # scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings)
+        scores = hoppy.prove(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings, hoppy.depth)
 
         if not is_train and test_max_depth is not None:
             hoppy.depth = max_depth_
 
         if _depth is not None:
-            hoppy.depth = max_depth_ #??
+            hoppy.depth = max_depth_  # ??
 
         return scores, [rel_emb, arg1_emb, arg2_emb]
 
@@ -476,7 +494,7 @@ def main(argv):
     for tensor in params_lst:
         logger.info(f'\t{tensor.size()}\t{tensor.device}')
 
-    #TODO: set just adam for example, no need for all these choices
+    # TODO: set just adam for example, no need for all these choices
     optimizer_factory = {
         'adagrad': lambda arg: optim.Adagrad(arg, lr=learning_rate),
         'adam': lambda arg: optim.Adam(arg, lr=learning_rate),
@@ -490,13 +508,11 @@ def main(argv):
 
     for epoch_no in range(1, nb_epochs + 1):
 
-        training_set, is_simple = data.train_graph, False # HeteroData
-
-### IGNORE for now
-        #if start_simple is not None and epoch_no <= start_simple:
-        #    training_set = [ins for ins in training_set if len(ins.story) == 2]
-        #    is_simple = True
-        #    logger.info(f'{len(data.train)} → {len(training_set)}')
+        training_set, is_simple = data.train, False
+        if start_simple is not None and epoch_no <= start_simple:
+            training_set = [ins for ins in training_set if len(ins.story) == 2]
+            is_simple = True
+            logger.info(f'{len(data.train)} → {len(training_set)}')
 
         batcher = Batcher(batch_size=batch_size, nb_examples=len(training_set), nb_epochs=1, random_state=random_state)
 
@@ -515,12 +531,14 @@ def main(argv):
             indices_batch = batcher.get_batch(batch_start, batch_end)
             instances_batch = [training_set[i] for i in indices_batch]
 
-            # label_lst: list of 1s and 0s indicating which query (==target) relation is where in the test_relation_lst
+            # label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
+            # TODO: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
+
             label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
-            #returns scores of what??
+            # returns scores of what??
             scores, query_emb_lst = scoring_function(instances_batch,
                                                      test_relation_lst,
                                                      is_train=True,
@@ -582,4 +600,4 @@ def main(argv):
 if __name__ == '__main__':
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     print(' '.join(sys.argv))
-    main(sys.argv[1:])
+    main()

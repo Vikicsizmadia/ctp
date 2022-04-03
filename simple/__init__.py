@@ -1,1 +1,1 @@
-from simple.make_heterodata import DataParser
+from simple.make_heterodata_version1 import DataParser
