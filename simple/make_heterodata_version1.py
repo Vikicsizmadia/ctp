@@ -86,7 +86,7 @@ class DataParser:
             edge_types_to_class = {} # dictionary to collect relation types to corresponding class ids
             # target_edges = {}  # dictionary for collecting target edges (edge_type : [[subject_nodes],[object_nodes]])
             for row in reader:
-                if len(name_to_id) > 5000:
+                if len(name_to_id) > 7000:
                     break
                 _id, _, _, query, _, target, _, _, _, _, _, story_edges, edge_types, _, genders, _, tmp, _ = row
                 if len(_id) > 0:

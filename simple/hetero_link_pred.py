@@ -12,7 +12,7 @@ from torch_geometric.nn import SAGEConv, to_hetero
 
 from os.path import join, dirname, abspath
 
-use_weighted_loss = True
+use_weighted_loss = False
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -32,8 +32,8 @@ test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', '
 test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
 
 dataset = DataParser(train_path=train_path, test_paths=test_paths)
-train_data = dataset.train_graph
-test_datas = dataset.test_graphs
+data = dataset.train_graph
+#test_datas = dataset.test_graphs
 
 #path = osp.join(osp.dirname(osp.realpath(__file__)), '../../data/MovieLens')
 #dataset = MovieLens(path, model_name='all-MiniLM-L6-v2')
@@ -49,22 +49,23 @@ test_datas = dataset.test_graphs
 # Add a reverse ('movie', 'rev_rates', 'user') relation for message passing:
 
 # train_data = T.ToUndirected()(train_data)
-# data = T.ToUndirected()(data)
-# del train_data['entity', 'rel', 'entity'].edge_label  # Remove "reverse" label.
+data = T.ToUndirected()(data)
+del data['entity', 'rel', 'entity'].edge_label  # Remove "reverse" label.
 
 # Perform a link-level split into training, validation, and test edges:
-#train_data, val_data, test_data = T.RandomLinkSplit(
-#    num_val=0.1,
-#    num_test=0.1,
-#    neg_sampling_ratio=0.0,
-#    edge_types=[('user', 'rates', 'movie')],
-#    rev_edge_types=[('movie', 'rev_rates', 'user')],
-#)(data)
+train_data, val_data, test_data = T.RandomLinkSplit(
+    num_val=0.1,
+    num_test=0.1,
+    neg_sampling_ratio=0.0,
+    edge_types=[('entity', 'rel', 'entity')],
+    rev_edge_types=[('entity', 'rel', 'entity')],
+)(data)
 
 # We have an unbalanced dataset with many labels for rating 3 and 4, and very
 # few for 0 and 1. Therefore we use a weighted MSE loss.
 if use_weighted_loss:
     weight = torch.bincount(train_data['entity', 'entity'].edge_label.int())
+    print(f"weight: {weight}")
     weight = weight.max() / weight
 else:
     weight = None
@@ -82,11 +83,14 @@ class GNNEncoder(torch.nn.Module):
         self.conv2 = SAGEConv((-1, -1), out_channels)
 
     def forward(self, x, edge_index):
-        print("1")
+        print(f"x1: {x}")
+        print(f"edge_index1: {edge_index}")
         x = self.conv1(x, edge_index).relu()
-        print("2")
+        print(f"x2: {x}")
+        print(f"edge_index2: {edge_index}")
         x = self.conv2(x, edge_index)
-        print("3")
+        print(f"x3: {x}")
+        print(f"edge_index3: {edge_index}")
         return x
 
 
@@ -113,6 +117,7 @@ class Model(torch.nn.Module):
         self.decoder = EdgeDecoder(hidden_channels)
 
     def forward(self, x_dict, edge_index_dict, edge_label_index):
+        print("before")
         z_dict = self.encoder(x_dict, edge_index_dict)
         return self.decoder(z_dict, edge_label_index)
 
@@ -130,7 +135,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 def train():
     model.train()
     optimizer.zero_grad()
-    pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'entity'].edge_index)
+    pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'entity'].edge_label_index)
     target = train_data['entity', 'entity'].edge_label
     loss = weighted_mse_loss(pred, target, weight)
     loss.backward()
@@ -141,9 +146,12 @@ def train():
 @torch.no_grad()
 def test(data):
     model.eval()
-    pred = model(data.x_dict, data.edge_index_dict, data['entity', 'entity'].edge_index)
-    pred = pred.clamp(min=0, max=5)
+    print(f"data entity x size: {data['entity'].x.shape}")
+    pred = model(data.x_dict, data.edge_index_dict, data['entity', 'entity'].edge_label_index)
+    print(f"pred size: {pred.shape}")
+    #pred = pred.clamp(min=0, max=5)
     target = data['entity', 'entity'].edge_label.float()
+    print(f"target size: {target.shape}")
     rmse = F.mse_loss(pred, target).sqrt()
     return float(rmse)
 
@@ -151,7 +159,15 @@ def test(data):
 for epoch in range(1, 301):
     loss = train()
     train_rmse = test(train_data)
-    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}')
-    for test_path in test_paths:
-        test_rmse = test(test_datas[test_path])
-        print(f'Test: {test_rmse:.4f}')
+    val_rmse = test(val_data)
+    test_rmse = test(test_data)
+    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}, '
+          f'Val: {val_rmse:.4f}, Test: {test_rmse:.4f}')
+
+#for epoch in range(1, 301):
+#    loss = train()
+#    train_rmse = test(train_data)
+#    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}')
+#    for test_path in test_paths:
+#        test_rmse = test(test_datas[test_path])
+#        print(f'Test: {test_rmse:.4f}')
