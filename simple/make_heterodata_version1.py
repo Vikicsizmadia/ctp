@@ -109,11 +109,10 @@ class DataParser:
 
                 idx += 1
 
+            # TODO: embeddings instead of one hot encoding
             data['entity'].x = torch.eye(len(name_to_id), device=device)
             # data['entity'].x = torch.arange(0, len(name_to_id)).view(len(name_to_id), 1)  # just the indices
             data['entity', 'rel', 'entity'].edge_index = torch.tensor(edges, dtype=torch.long, device=device)
             data['entity', 'rel', 'entity'].edge_label = torch.tensor(labels, dtype=torch.long, device=device)
 
-            #data = HeteroData({'entity_rel_entity': {'edge_index': torch.Tensor(edges),
-            #                                         'edge_label': torch.Tensor(labels)}})
         return data, name_to_id, edge_types_to_class, idx

@@ -4,6 +4,7 @@ import os.path as osp
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear
+from torch import nn
 
 import torch_geometric.transforms as T
 from simple import DataParser
@@ -12,13 +13,9 @@ from torch_geometric.nn import SAGEConv, to_hetero
 
 from os.path import join, dirname, abspath
 
-use_weighted_loss = False
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
 # getting the dataset
-
 train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv')
 test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
 test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
@@ -33,48 +30,14 @@ test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_p
 
 dataset = DataParser(train_path=train_path, test_paths=test_paths)
 train_data = dataset.train_graph
-#test_datas = dataset.test_graphs
+test_datas = dataset.test_graphs
 
-#path = osp.join(osp.dirname(osp.realpath(__file__)), '../../data/MovieLens')
-#dataset = MovieLens(path, model_name='all-MiniLM-L6-v2')
-#data = dataset[0].to(device)
+relation_lst = dataset.relation_lst
+nb_relations = len(relation_lst)
+nb_entities = len(dataset.entity_lst)
+embedding_size = 20
 
-# Add user node features for message passing:
-# print(len(dataset.train_nodes_ids))
-# train_data['entity'].x = torch.eye(len(dataset.train_nodes_ids), device=device)
-
-#for test_path in test_paths:
-#    test_datas[test_path]['entity'].x = torch.eye(len(dataset.test_nodes_ids[test_path]), device=device)
-
-# Add a reverse ('movie', 'rev_rates', 'user') relation for message passing:
-
-# train_data = T.ToUndirected()(train_data)
-#data = T.ToUndirected()(data)
-#del data['entity', 'rel', 'entity'].edge_label  # Remove "reverse" label.
-
-# Perform a link-level split into training, validation, and test edges:
-#train_data, val_data, test_data = T.RandomLinkSplit(
-#    num_val=0.1,
-#    num_test=0.1,
-#    neg_sampling_ratio=0.0,
-#    edge_types=[('entity', 'rel', 'entity')],
-#    rev_edge_types=[('entity', 'rel', 'entity')],
-#)(data)
-
-# We have an unbalanced dataset with many labels for rating 3 and 4, and very
-# few for 0 and 1. Therefore we use a weighted MSE loss.
-#if use_weighted_loss:
-#    weight = torch.bincount(train_data['entity', 'entity'].edge_label.int())
-#    print(f"weight: {weight}")
-#    weight = weight.max() / weight
-#else:
-#    weight = None
-
-
-#def weighted_mse_loss(pred, target, weight=None):
-#    weight = 1. if weight is None else weight[target].to(pred.dtype)
-#    return (weight * (pred - target.to(pred.dtype)).pow(2)).mean()
-
+loss_function = nn.BCELoss()
 
 class GNNEncoder(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -83,14 +46,9 @@ class GNNEncoder(torch.nn.Module):
         self.conv2 = SAGEConv((-1, -1), out_channels)
 
     def forward(self, x, edge_index):
-        print(f"x1: {x}")
-        print(f"edge_index1: {edge_index}")
         x = self.conv1(x, edge_index).relu()
-        print(f"x2: {x}")
-        print(f"edge_index2: {edge_index}")
         x = self.conv2(x, edge_index)
         print(f"x3: {x}")
-        print(f"edge_index3: {edge_index}")
         return x
 
 
@@ -98,7 +56,7 @@ class EdgeDecoder(torch.nn.Module):
     def __init__(self, hidden_channels):
         super().__init__()
         self.lin1 = Linear(2 * hidden_channels, hidden_channels)
-        self.lin2 = Linear(hidden_channels, 1)
+        self.lin2 = Linear(hidden_channels, nb_relations)  # instead of 1
 
     def forward(self, z_dict, edge_label_index):
         row, col = edge_label_index
@@ -112,12 +70,16 @@ class EdgeDecoder(torch.nn.Module):
 class Model(torch.nn.Module):
     def __init__(self, hidden_channels):
         super().__init__()
+        self.embeddings = nn.Embedding(nb_entities, embedding_size).to(device)  # sparse=True - Adam does not support it
+        nn.init.uniform_(self.embeddings.weight, -1.0, 1.0)
+        self.embeddings.requires_grad = False
         self.encoder = GNNEncoder(hidden_channels, hidden_channels)
         self.encoder = to_hetero(self.encoder, train_data.metadata(), aggr='sum')
         self.decoder = EdgeDecoder(hidden_channels)
 
     def forward(self, x_dict, edge_index_dict, edge_label_index):
         print("before")
+        x_dict = {'entity': self.embeddings(x_dict['entity'])}
         z_dict = self.encoder(x_dict, edge_index_dict)
         return self.decoder(z_dict, edge_label_index)
 
@@ -127,7 +89,8 @@ model = Model(hidden_channels=32).to(device)
 # Due to lazy initialization, we need to run one model step so the number
 # of parameters can be inferred:
 with torch.no_grad():
-    model.encoder(train_data.x_dict, train_data.edge_index_dict)
+    x_dict = {'entity': model.embeddings(train_data.x_dict['entity'])}
+    model.encoder(x_dict, train_data.edge_index_dict)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
@@ -135,9 +98,14 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 def train():
     model.train()
     optimizer.zero_grad()
-    pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'entity'].edge_label_index)
-    target = train_data['entity', 'entity'].edge_label
-    loss = weighted_mse_loss(pred, target, weight)
+    pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'target', 'entity'].edge_index)
+    pred = pred.clamp(min=0, max=1)
+    target = torch.zeros(pred.shape[0], device=device)
+    for i in range(len(train_data['entity', 'target', 'entity'].edge_label)):
+        zero_idx = i*nb_relations
+        class_num = train_data['entity', 'target', 'entity'].edge_label[i]
+        target[zero_idx+class_num] = 1
+    loss = loss_function(pred, target)
     loss.backward()
     optimizer.step()
     return float(loss)
@@ -146,28 +114,28 @@ def train():
 @torch.no_grad()
 def test(data):
     model.eval()
-    print(f"data entity x size: {data['entity'].x.shape}")
-    pred = model(data.x_dict, data.edge_index_dict, data['entity', 'entity'].edge_label_index)
-    print(f"pred size: {pred.shape}")
-    #pred = pred.clamp(min=0, max=5)
-    target = data['entity', 'entity'].edge_label.float()
-    print(f"target size: {target.shape}")
-    rmse = F.mse_loss(pred, target).sqrt()
-    return float(rmse)
+    pred = model(data.x_dict, data.edge_index_dict, data['entity', 'target', 'entity'].edge_index)
+    pred = pred.clamp(min=0, max=1)
+    target = torch.zeros(pred.shape[0], device=device)
+    for i in range(len(data['entity', 'target', 'entity'].edge_label)):
+        zero_idx = i * nb_relations
+        class_num = data['entity', 'target', 'entity'].edge_label[i]
+        target[zero_idx + class_num] = 1
+    loss = loss_function(pred, target)
+    return float(loss)
 
-
-for epoch in range(1, 301):
-    loss = train()
-    train_rmse = test(train_data)
-    val_rmse = test(val_data)
-    test_rmse = test(test_data)
-    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}, '
-          f'Val: {val_rmse:.4f}, Test: {test_rmse:.4f}')
 
 #for epoch in range(1, 301):
 #    loss = train()
 #    train_rmse = test(train_data)
-#    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}')
-#    for test_path in test_paths:
-#        test_rmse = test(test_datas[test_path])
-#        print(f'Test: {test_rmse:.4f}')
+#    val_rmse = test(val_data)
+#    test_rmse = test(test_data)
+#    print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Train: {train_rmse:.4f}, '
+#          f'Val: {val_rmse:.4f}, Test: {test_rmse:.4f}')
+
+for epoch in range(1, 301):
+    loss = train()
+    print(f'Epoch: {epoch:03d}, Train: {loss:.4f}')
+    for test_path in test_paths:
+        test_loss = test(test_datas[test_path])
+        print(f'Test: {test_loss:.4f}')
