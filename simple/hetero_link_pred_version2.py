@@ -18,7 +18,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # getting the dataset
 train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv')
 test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
-test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+#test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
 test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
 test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
 test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
@@ -26,8 +26,8 @@ test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', '
 test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
 test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
 test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
-test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
-
+test_paths = [test_path1, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
+# test_path2,
 dataset = DataParser(train_path=train_path, test_paths=test_paths)
 train_data = dataset.train_graph
 test_datas = dataset.test_graphs
@@ -48,7 +48,7 @@ class GNNEncoder(torch.nn.Module):
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index).relu()
         x = self.conv2(x, edge_index)
-        print(f"x3: {x}")
+        #print(f"x3: {x}")
         return x
 
 
@@ -78,7 +78,7 @@ class Model(torch.nn.Module):
         self.decoder = EdgeDecoder(hidden_channels)
 
     def forward(self, x_dict, edge_index_dict, edge_label_index):
-        print("before")
+        #print("before")
         x_dict = {'entity': self.embeddings(x_dict['entity'])}
         z_dict = self.encoder(x_dict, edge_index_dict)
         return self.decoder(z_dict, edge_label_index)
@@ -98,6 +98,9 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 def train():
     model.train()
     optimizer.zero_grad()
+    #print(train_data.x_dict['entity'].shape)
+    #for k,v in train_data.edge_index_dict.items():
+    #    print(k,v.shape)
     pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'target', 'entity'].edge_index)
     pred = pred.clamp(min=0, max=1)
     target = torch.zeros(pred.shape[0], device=device)
@@ -105,6 +108,7 @@ def train():
         zero_idx = i*nb_relations
         class_num = train_data['entity', 'target', 'entity'].edge_label[i]
         target[zero_idx+class_num] = 1
+    # TODO: one_hot-tal megcsinalni a targetet
     loss = loss_function(pred, target)
     loss.backward()
     optimizer.step()
@@ -114,6 +118,9 @@ def train():
 @torch.no_grad()
 def test(data):
     model.eval()
+    #print(data.x_dict['entity'].shape)
+    #for k,v in data.edge_index_dict.items():
+    #    print(k,v.shape)
     pred = model(data.x_dict, data.edge_index_dict, data['entity', 'target', 'entity'].edge_index)
     pred = pred.clamp(min=0, max=1)
     target = torch.zeros(pred.shape[0], device=device)

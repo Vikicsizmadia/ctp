@@ -34,15 +34,20 @@ class DataParser:
             self.edge_types_to_class[rel] = class_num
             class_num += 1
 
-        (self._train_graph, self._train_nodes_ids, new_idx) = DataParser.parse(train_path, 0,
-                                                                               self.device, self.edge_types_to_class)
+        allowed_edges = ['father', 'son', 'wife', 'husband', 'uncle', 'grandfather', 'grandmother', 'daughter']
+
+        (self._train_graph, self._train_nodes_ids, new_idx, edge_types) = DataParser.parse(train_path, 0,
+                                                                                           self.device,
+                                                                                           self.edge_types_to_class,
+                                                                                           allowed_edges)
+                                                                                           # self.relation_lst)
         entity_set = set(self.train_nodes_ids.keys())
 
         self._test_graphs = OrderedDict()
         self._test_nodes_ids = OrderedDict()
         for test_path in (test_paths if test_paths is not None else []):
-            (self._test_graphs[test_path], self._test_nodes_ids[test_path], new_idx) = \
-                DataParser.parse(test_path, new_idx, self.device, self.edge_types_to_class)
+            (self._test_graphs[test_path], self._test_nodes_ids[test_path], new_idx, test_edge_types) = \
+                DataParser.parse(test_path, new_idx, self.device, self.edge_types_to_class, allowed_edges) # edge_types)
             entity_set |= set(self.test_nodes_ids[test_path].keys())
 
         self.entity_lst = sorted(entity_set)
@@ -70,7 +75,7 @@ class DataParser:
     # process the csv file at the given path
     # returning the graph, the target edges, the node names corresponding to their ids in the graph
     @staticmethod
-    def parse(path: str, idx: int, device, edge_types_to_class) -> (HeteroData, Dict[str, int], int):
+    def parse(path: str, idx: int, device, edge_types_to_class, allowed_edges) -> (HeteroData, Dict[str, int], int):
         original_idx = idx
         data = HeteroData()
         with open(path, newline='') as f:
@@ -102,9 +107,12 @@ class DataParser:
 
             # just the indices
             data['entity'].x = torch.arange(original_idx, original_idx+len(name_to_id), dtype=torch.long, device=device)
+            #print(edges.keys())
             for rel_type in edges.keys():
-                data['entity', rel_type, 'entity'].edge_index = torch.tensor(edges[rel_type], dtype=torch.long, device=device)
+                if rel_type in allowed_edges:
+                    data['entity', rel_type, 'entity'].edge_index = torch.tensor(edges[rel_type],
+                                                                                 dtype=torch.long, device=device)
             data['entity', 'target', 'entity'].edge_index = torch.tensor(target_edges, dtype=torch.long, device=device)
             data['entity', 'target', 'entity'].edge_label = torch.tensor(target_labels, dtype=torch.long, device=device)
 
-        return data, name_to_id, idx
+        return data, name_to_id, idx, edges.keys()
