@@ -17,7 +17,7 @@ class DataParser:
                  train_path: str = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp',
                                         'data_089907f8', '1.2,1.3_train.csv'),
                  test_paths: Optional[List[str]] = None,
-                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
 
         self.device = device
 
@@ -28,13 +28,14 @@ class DataParser:
                                       for _, r in v.items() if k != 'no-relation'}
         self.relation_lst = sorted({r for r in self.relation_to_predicate.keys()})
 
+        allowed_edges = sorted({'father', 'son', 'wife', 'husband', 'uncle', 'grandfather', 'grandmother', 'daughter'})
+        # self.relation_lst = allowed_edges
+
         self.edge_types_to_class = {}  # dictionary to connect relation types to class ids
         class_num = 0
         for rel in self.relation_lst:
             self.edge_types_to_class[rel] = class_num
             class_num += 1
-
-        allowed_edges = ['father', 'son', 'wife', 'husband', 'uncle', 'grandfather', 'grandmother', 'daughter']
 
         (self._train_graph, self._train_nodes_ids, new_idx, edge_types) = DataParser.parse(train_path, 0,
                                                                                            self.device,
@@ -108,11 +109,11 @@ class DataParser:
             # just the indices
             data['entity'].x = torch.arange(original_idx, original_idx+len(name_to_id), dtype=torch.long, device=device)
             #print(edges.keys())
-            for rel_type in edges.keys():
-                if rel_type in allowed_edges:
-                    data['entity', rel_type, 'entity'].edge_index = torch.tensor(edges[rel_type],
-                                                                                 dtype=torch.long, device=device)
+            #for rel_type in edges.keys():
+            #    if rel_type in allowed_edges:
+            for rel_type in allowed_edges:
+                data['entity', rel_type, 'entity'].edge_index = torch.tensor(edges[rel_type],
+                                                                             dtype=torch.long, device=device)
             data['entity', 'target', 'entity'].edge_index = torch.tensor(target_edges, dtype=torch.long, device=device)
             data['entity', 'target', 'entity'].edge_label = torch.tensor(target_labels, dtype=torch.long, device=device)
-
         return data, name_to_id, idx, edges.keys()

@@ -1,1 +1,2 @@
 from simple.make_heterodata_version2 import DataParser
+from simple.evaluation_heterodata import accuracy

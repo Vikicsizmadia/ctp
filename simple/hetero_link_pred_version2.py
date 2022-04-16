@@ -103,6 +103,8 @@ def train():
     #    print(k,v.shape)
     pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'target', 'entity'].edge_index)
     pred = pred.clamp(min=0, max=1)
+    print(f"pred shape: {pred.shape}")
+    print(f"other shape: {train_data['entity', 'target', 'entity'].edge_index.shape}")
     target = torch.zeros(pred.shape[0], device=device)
     for i in range(len(train_data['entity', 'target', 'entity'].edge_label)):
         zero_idx = i*nb_relations
