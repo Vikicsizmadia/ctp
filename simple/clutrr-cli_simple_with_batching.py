@@ -16,10 +16,9 @@ import torch.nn.functional as F
 
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance
-from simple import DataParser, accuracy
+from simple import DataParserCTP, accuracy, BatchNeuralKB, get_neighbours, BatchHoppy
 
-from ctp.clutrr.models import BatchNeuralKB
-from model_simple_cleaned import BatchHoppy
+# from ctp.clutrr.models import BatchNeuralKB
 
 from ctp.reformulators import BaseReformulator
 from ctp.reformulators import StaticReformulator
@@ -121,6 +120,32 @@ class Batcher:
                   batch_end: int) -> np.ndarray:
         return self.curriculum[batch_start:batch_end]
 
+class Batcher_hetero:
+    def __init__(self,
+                 batch_size: int,
+                 nb_examples: int, # number of targets
+                 # nb_epochs: int,
+                 random_state: Optional[np.random.RandomState]):
+        self.batch_size = batch_size
+        self.nb_examples = nb_examples
+        # self.nb_epochs = nb_epochs
+        self.random_state = random_state
+
+        self.curriculum = np.zeros(self.nb_examples, dtype=np.int32)
+
+        if self.random_state is not None:
+            self.curriculum = self.random_state.permutation(nb_examples)
+        else:
+            self.curriculum = np.arange(nb_examples)
+
+        self.batches = make_batches(self.curriculum.shape[0], self.batch_size)
+        self.nb_batches = len(self.batches)
+
+    def get_batch(self,
+                  batch_start: int,
+                  batch_end: int) -> np.ndarray:
+        return self.curriculum[batch_start:batch_end]
+
 # takes in the list of facts [F,3]
 # gives back the list of the embeddings corresponding to the relations of each fact [F,E]
 def encode_relation(facts: List[Fact], # [F,3]: [(s,r,o), (s,r,o), ..., (s,r,o)]
@@ -201,7 +226,7 @@ def main():
 ### OTHER
     learning_rate = 0.01 #0.1 is suggested
     # training batch size
-    batch_size = 32
+    batch_size = 6  # 32
     # testing batch size --> this can be smaller than for training
     test_batch_size = batch_size # could be other as well
 
@@ -211,7 +236,7 @@ def main():
 
     # how often you want to evaluate
     evaluate_every = 128 # int
-    evaluate_every_batches = None # int
+    evaluate_every_batches = 10 # None, int
 
     # whether you want to regularize
     #argparser.add_argument('--N2', action='store', type=float, default=None)
@@ -273,7 +298,7 @@ def main():
 
 # Initializing data and embeddings
 
-    data = DataParser(train_path=train_path, test_paths=test_paths)
+    data = DataParserCTP(train_path=train_path, test_paths=test_paths)
     entity_lst, relation_lst = data.entity_lst, data.relation_lst
     # relation_lst = ['father', 'son', 'wife', 'husband', 'uncle', 'grandfather', 'grandmother', 'daughter']
 
@@ -471,6 +496,7 @@ def main():
 
     def scoring_function_CTP(graph_data: HeteroData,
                              relation_to_class: Dict[str, int],
+                             entity_lst: List[int],
                              is_train: bool = False,
                              _depth: Optional[int] = None) -> Tuple[Tensor, List[Tensor]]:
 
@@ -479,8 +505,6 @@ def main():
         #             is_train: bool = False,
         #             _depth: Optional[int] = None) -> Tuple[Tensor, List[Tensor]]:
 
-        # TODO: make batching, because "facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)"
-        # TODO: runs out of memory
         # [N,E], where N is the number of different entities
         # entity_embeddings = nn.Embedding(nb_entities, embedding_size, sparse=True).to(device)
         # nn.init.uniform_(entity_embeddings.weight, -1.0, 1.0)
@@ -509,8 +533,9 @@ def main():
 
         ## encoding targets
         # rel = torch.tile(relation_embeddings, (edge_label_index.shape[1], 1))
-        rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1))
+        rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1)).flatten()
         rel = relation_embeddings(rel_idx) # [nb_targets*R,E]
+        print(f"rel shape: {rel.shape}")
         arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()  # relation_embeddings.shape[0]
         # [nb_targets*R,E]
         arg1 = entity_embeddings(arg1_idx) # x_dict['entity'][arg1_idx]
@@ -520,9 +545,10 @@ def main():
 
         ## Encoding facts
         # F: total number of facts
-        facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in edge_index_dict.values()]) # [F,E]
+        # necessary that the target edge type is the last edge type
+        facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]]) # [F,E]
         # torch.cat([x_dict['entity'][edge_index[0, :], :] for edge_index in edge_index_dict.values()])
-        facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in edge_index_dict.values()]) # [F,E]
+        facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]]) # [F,E]
         # torch.cat([x_dict['entity'][edge_index[1, :], :] for edge_index in edge_index_dict.values()])
 
         #for key, edge_index in edge_index_dict.items():
@@ -535,7 +561,7 @@ def main():
             if key[1] != 'target':
                 for edge_type in [key[1]] * edge_index.shape[1]:
                     rel_index.append(relation_to_class[edge_type])
-        rel_index = torch.tensor(rel_index, device=device)
+        rel_index = torch.tensor(rel_index, dtype=torch.long, device=device)
 
         #rel_index = [relation_to_class[edge_type] for key, edge_index in edge_index_dict.items() for edge_type in
         #             [key[1]] * edge_index.shape[1]]
@@ -543,13 +569,22 @@ def main():
         print(f"facts_rel shape should be [F,E], and it is: {facts_rel.shape}")
 
         batch_size = rel.shape[0]  # nb_targets*R
+
         fact_size = facts_rel.shape[0]  # F - the number of facts in "story"
-        entity_size = nb_entities  # N - the number of different entities in the facts (=="story")
+        entity_size = len(entity_lst)  # N - the number of different entities in the facts (=="story")
+        entity_tensor = torch.tensor(entity_lst, dtype=torch.long, device=device)
+        embeddings = entity_embeddings(entity_tensor)
 
         # [B,F,E]
         facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)
         facts_arg1 = facts_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)
         facts_arg2 = facts_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+
+        # [B, N, E]
+        # repeat the same entity embeddings for each instance in batch (== for each relation)
+        # (1 batch will be all possible relation substitutions for the target relation)
+        # --> embeddings_lst will become [batch_size,N,E], where batch is number of instances in batch
+        embeddings = embeddings.view(1, entity_size, -1).repeat(batch_size, 1, 1)
 
         # [3,B,F,E]
         facts = [facts_rel, facts_arg1, facts_arg2]  # pass to prove function
@@ -577,7 +612,7 @@ def main():
             label_lst[zero_idx + class_num] = 1
         # TODO: one_hot-tal megcsinalni a targetet
 
-        embeddings_lst = [entity_embeddings]
+        #embeddings_lst = [entity_embeddings]
 
         """
         def cat_pad(t_lst: List[Tensor]) -> Tuple[Tensor, Tensor]:
@@ -631,10 +666,12 @@ def main():
         if _depth is not None:
             hoppy.depth = _depth
 
-        # TODO: write this with HeteroData
         # trying hoppy.prove instead
         # scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_entities)
-        scores = hoppy.prove(rel, arg1, arg2, facts, nb_facts, embeddings_lst, nb_entities, hoppy.depth)
+        print(f"rel.shape: {rel.shape}")
+        print(f"arg1.shape: {arg1.shape}")
+        print(f"arg2.shape: {arg2.shape}")
+        scores = hoppy.prove(rel, arg1, arg2, facts, embeddings, hoppy.depth)
 
         if not is_train and test_max_depth is not None:
             hoppy.depth = max_depth_
@@ -663,12 +700,14 @@ def main():
 
     def evaluate_CTP(graph_data: HeteroData,
                      relation_to_class: Dict[str, int],
+                     entity_lst: List[int],
                      path: str) -> float:
         res = accuracy(scoring_function=scoring_function_CTP,
                        graph_data=graph_data,
                        relation_to_class=relation_to_class,
                        relation_lst=relation_lst,
-                       batch_size=1,
+                       entity_lst=entity_lst,
+                       batch_size=test_batch_size,
                        is_debug=is_debug)
         logger.info(f'Test Accuracy on {path}: {res:.6f}')
         return res
@@ -709,73 +748,87 @@ def main():
         #    is_simple = True
         #    logger.info(f'{len(data.train)} → {len(training_set)}')
 
-        # batcher = Batcher(batch_size=batch_size, nb_examples=len(training_set), nb_epochs=1, random_state=random_state)
+        targets = train_data['entity', 'target', 'entity'].edge_index
 
-        nb_batches = 1  # len(batcher.batches)
+        print(f"train_data: {train_data}")
+
+        print(f"targets.shape[1]: {targets.shape[1]}")
+
+        batcher = Batcher_hetero(batch_size=batch_size, nb_examples=targets.shape[1], random_state=random_state)
+
+        nb_batches = len(batcher.batches)
         epoch_loss_values = []
 
-        """
-        counter = 0
+        #counter = 0
         for batch_no, (batch_start, batch_end) in enumerate(batcher.batches, start=1):
-            counter += 1
-            if debug:
-                if counter > 1:
-                    break
+            #counter += 1
+            #if debug:
+            #    if counter > 1:
+            #        break
             global_step += 1
-        """
 
-        # getting current batch from the training set
-        # indices_batch = batcher.get_batch(batch_start, batch_end)
-        # instances_batch = [training_set[i] for i in indices_batch]
+            # getting current batch from the training set
+            indices_batch = batcher.get_batch(batch_start, batch_end)
+            node_ids = set(torch.cat((targets[0][indices_batch], targets[1][indices_batch])).tolist())
+            current_data, entity_lst = get_neighbours(node_ids, train_data)
 
-        # label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
-        # DONE: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
+            #[targets[0][indices_batch]] + [targets[0][indices_batch]]
 
-        # label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
-        label_lst = torch.zeros(train_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations, device=device)
-        for i in range(len(train_data['entity', 'target', 'entity'].edge_label)):
-            zero_idx = i * nb_relations
-            class_num = train_data['entity', 'target', 'entity'].edge_label[i]
-            label_lst[zero_idx + class_num] = 1
-        # TODO: one_hot-tal megcsinalni a targetet
+            # [training_set[i] for i in indices_batch]
 
-        labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
+            # label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
+            # DONE: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
 
-        # returns scores of what??
-        scores, query_emb_lst = scoring_function_CTP(train_data,
-                                                     relation_to_class,
-                                                     is_train=True,
-                                                     _depth=1 if is_simple else None)
+            # label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
-        loss = loss_function(scores, labels)
+            label_lst = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
+                                    device=device)
+            for i in range(len(current_data['entity', 'target', 'entity'].edge_label)):
+                zero_idx = i * nb_relations
+                class_num = current_data['entity', 'target', 'entity'].edge_label[i]
+                label_lst[zero_idx + class_num] = 1
+            # TODO: one_hot-tal megcsinalni a targetet
 
-        factors = [hoppy.factor(e) for e in query_emb_lst]
+            labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
-        loss_value = loss.item()
-        epoch_loss_values += [loss_value]
+            # returns scores of what??
+            scores, query_emb_lst = scoring_function_CTP(current_data,
+                                                         relation_to_class,
+                                                         entity_lst,
+                                                         is_train=True,
+                                                         _depth=1 if is_simple else None)
 
-        if nb_gradient_accumulation_steps > 1:
-            loss = loss / nb_gradient_accumulation_steps
+            loss = loss_function(scores, labels)
 
-        loss.backward()
+            factors = [hoppy.factor(e) for e in query_emb_lst]
 
-        if nb_gradient_accumulation_steps == 1 or global_step % nb_gradient_accumulation_steps == 0:
-            optimizer.step()
-            optimizer.zero_grad()
+            loss_value = loss.item()
+            epoch_loss_values += [loss_value]
 
-        logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch 1/{nb_batches}\tLoss {loss_value:.4f}')
-        # logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
+            if nb_gradient_accumulation_steps > 1:
+                loss = loss / nb_gradient_accumulation_steps
 
-        #if evaluate_every_batches is not None:
-        #    if global_step % evaluate_every_batches == 0:
-        #        for test_path in test_paths:
-        #            evaluate_CTP(instances=data.test[test_path], path=test_path)
+            loss.backward()
+
+            if nb_gradient_accumulation_steps == 1 or global_step % nb_gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+
+            logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
+            # logger.info(f'Epoch {epoch_no}/{nb_epochs}\tBatch {batch_no}/{nb_batches}\tLoss {loss_value:.4f}')
+
+            if evaluate_every_batches is not None:
+                if global_step % evaluate_every_batches == 0:
+                    for test_path in test_paths:
+                        # TODO: make batching here as well, because out of memory error
+                        evaluate_CTP(data.test_graphs[test_path], relation_to_class, data.entity_lst, path=test_path)
 
         if epoch_no % evaluate_every == 0:
             for test_path in test_paths:
                 evaluate_CTP(graph_data=data.test_graphs[test_path],
                              relation_to_class=relation_to_class,
+                             entity_lst=data.entity_lst,
                              path=test_path)
                 # evaluate_CTP(instances=data.test[test_path], path=test_path)
 
@@ -796,6 +849,7 @@ def main():
     for test_path in test_paths:
         evaluate_CTP(graph_data=data.test_graphs[test_path],
                      relation_to_class=relation_to_class,
+                     entity_lst=entity_lst,
                      path=test_path)
         # evaluate(instances=data.test[test_path], path=test_path)
 

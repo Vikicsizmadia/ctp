@@ -16,9 +16,9 @@ import torch.nn.functional as F
 
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance
-from simple import DataParser, accuracy
+from simple import DataParser, accuracy, BatchNeuralKB
 
-from ctp.clutrr.models import BatchNeuralKB
+# from ctp.clutrr.models import BatchNeuralKB
 from model_simple_cleaned import BatchHoppy
 
 from ctp.reformulators import BaseReformulator
@@ -547,9 +547,9 @@ def main():
         entity_size = nb_entities  # N - the number of different entities in the facts (=="story")
 
         # [B,F,E]
-        facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)
-        facts_arg1 = facts_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)
-        facts_arg2 = facts_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        #facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        #facts_arg1 = facts_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        #facts_arg2 = facts_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)
 
         # [3,B,F,E]
         facts = [facts_rel, facts_arg1, facts_arg2]  # pass to prove function

@@ -18,7 +18,7 @@ from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance, accuracy
 from simple import DataParser
 
-from ctp.clutrr.models import BatchNeuralKB
+from simple import BatchNeuralKB  # ctp.clutrr.models import BatchNeuralKB
 from model_simple_cleaned import BatchHoppy
 
 from ctp.reformulators import BaseReformulator

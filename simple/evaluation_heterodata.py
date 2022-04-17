@@ -14,11 +14,12 @@ from torch_geometric.data import HeteroData
 from simple import DataParser
 
 
-def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int]], Tuple[Tensor, Any]],
+def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int], List[int]], Tuple[Tensor, Any]],
              graph_data: HeteroData,  # instances: List[Instance],
              relation_to_class: Dict[str, int],
              relation_lst: List[str],
              # sample_size: Optional[int] = None,
+             entity_lst: List[int],
              batch_size: Optional[int] = None,
              # relation_to_predicate: Optional[Dict[str, str]] = None,
              is_debug: bool = False) -> float:
@@ -41,7 +42,7 @@ def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int]], Tuple[Tens
     #    batch_size = len(batch)
 
     with torch.no_grad():
-        scores, _ = scoring_function(graph_data, relation_to_class)
+        scores, _ = scoring_function(graph_data, relation_to_class, entity_lst)
         scores = scores.view(batch_size, nb_relations)
         scores_np = scores.cpu().numpy()
 

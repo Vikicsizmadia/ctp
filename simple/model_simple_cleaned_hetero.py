@@ -4,8 +4,8 @@ import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
 
-from simple import BatchNeuralKB  # ctp.clutrr.models.kb import BatchNeuralKB
-from ctp.clutrr.models.util import uniform
+from simple import BatchNeuralKB, uniform  # ctp.clutrr.models.kb import BatchNeuralKB
+# from ctp.clutrr.models.util import uniform
 
 from ctp.reformulators import BaseReformulator
 from ctp.reformulators import GNTPReformulator
@@ -89,9 +89,9 @@ class BatchHoppy(nn.Module):
     def prove(self,
               rel: Tensor, arg1: Tensor, arg2: Tensor,
               facts: List[Tensor],
-              nb_facts: Tensor,
+              # nb_facts: Tensor,
               entity_embeddings: Tensor,
-              nb_entities: Tensor,
+              # nb_entities: Tensor,
               depth: int) -> Tensor:
 
         """Does the main part of the CTP method by calculating the proof scores of the given queries.
@@ -137,8 +137,9 @@ class BatchHoppy(nn.Module):
         # no reformulation
 
         # [B]
-        scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts,
-                                    entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+        scores_0 = self.model.score(rel, arg1, arg2, facts=facts)
+
+        # nb_facts=nb_facts, entity_embeddings=entity_embeddings, nb_entities=nb_entities
 
         # reformulation
 
@@ -197,7 +198,7 @@ class BatchHoppy(nn.Module):
                         # one of the arguments is all entity embeddings
                         # [B * S, N]
                         new_scores = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
-                                                nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                                                entity_embeddings, depth=depth - 1)  # nb_facts, nb_entities,
                         new_scores = new_scores.view(-1, entity_emb_max_nb)
 
                         # k (default 10), N (maximum number of entities in entity_embeddings)
@@ -243,7 +244,7 @@ class BatchHoppy(nn.Module):
                         # one of the arguments is the arg2 entities from the query
                         # [B * S]
                         z_scores_1d = self.prove(hop_rel_2d, new_arg1, new_arg2, facts,
-                                                 nb_facts, entity_embeddings, nb_entities, depth=depth - 1)
+                                                 entity_embeddings, depth=depth - 1) # nb_facts, nb_entities,
 
                         # [B * S]
                         scores = z_scores_1d if scores is None else self._tnorm(z_scores_1d, scores)
@@ -256,9 +257,8 @@ class BatchHoppy(nn.Module):
                     scores_2d = scores.view(batch_size, -1)
                     res, _ = torch.max(scores_2d, dim=1)
                 else:
-                    res = self.model.score(rel, arg1, arg2,
-                                           facts=facts, nb_facts=nb_facts,
-                                           entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+                    res = self.model.score(rel, arg1, arg2, facts=facts)
+                # nb_facts=nb_facts, entity_embeddings=entity_embeddings, nb_entities=nb_entities
 
                 # update scores with scores obtained from using the current reformulator
                 # [B]
