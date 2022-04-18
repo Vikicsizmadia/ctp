@@ -668,6 +668,7 @@ def main():
 
         # trying hoppy.prove instead
         # scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_entities)
+        # [nb_targets*R]
         print(f"rel.shape: {rel.shape}")
         print(f"arg1.shape: {arg1.shape}")
         print(f"arg2.shape: {arg2.shape}")
