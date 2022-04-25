@@ -1,6 +1,6 @@
 from simple.make_heterodata_version2 import DataParser
 from simple.make_heterodata_version2_CTP import DataParserCTP
-from simple.util_hetero import get_neighbours
+from simple.util_hetero_vectorized import get_neighbours
 from simple.evaluation_heterodata import accuracy
 from simple.ctp_clutrr_models_util_hetero import lookup, uniform
 from simple.kb_simple_hetero import BatchNeuralKB

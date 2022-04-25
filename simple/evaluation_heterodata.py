@@ -15,21 +15,14 @@ from simple import get_neighbours
 
 
 def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int], List[int]], Tuple[Tensor, Any]],
-             graph_data: HeteroData,  # instances: List[Instance],
+             graph_data: HeteroData,
              relation_to_class: Dict[str, int],
              relation_lst: List[str],
-             # sample_size: Optional[int] = None,
-             entity_lst: List[int],
-             batch_size: Optional[int] = None,
-             # relation_to_predicate: Optional[Dict[str, str]] = None,
-             is_debug: bool = False) -> float:
+             batch_size: Optional[int] = None) -> float:
 
-    # if sample_size is not None:
-    #    instances = instances[:sample_size]
     targets = graph_data['entity', 'target', 'entity'].edge_index
+    target_labels = graph_data['entity', 'target', 'entity'].edge_label
     nb_instances = targets.shape[1]
-
-    # nb_instances = len(instances)
 
     batches = [(None, None)]
     if batch_size is not None:
@@ -39,17 +32,13 @@ def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int], List[int]],
 
     is_correct_lst = []
 
-    # for batch_start, batch_end in batches:
-    #    batch = instances[batch_start:batch_end]
-    #    batch_size = len(batch)
-
     for batch_start, batch_end in batches:
 
         # getting current batch from the training set
         indices_batch = np.arange(batch_start, batch_end)
-        #indices_batch = batcher.get_batch(batch_start, batch_end)
-        node_ids = set(torch.cat((targets[0][indices_batch], targets[1][indices_batch])).tolist())
+        node_ids = torch.cat((targets[0][indices_batch], targets[1][indices_batch]))
         current_data, entity_lst = get_neighbours(node_ids, graph_data)
+        current_data['entity', 'target', 'entity'].edge_label = target_labels[indices_batch]
 
         batch_size = batch_end-batch_start
 
@@ -62,15 +51,6 @@ def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int], List[int]],
 
         # np does not support CUDA, so need to put tensor to cpu
         true = np.array(current_data['entity', 'target', 'entity'].edge_label.cpu())
-        # ([relation_lst.index(i.target[1]) for i in batch], dtype=predicted.dtype)
-
-
-        # for i, (a, b) in enumerate(zip(predicted.tolist(), true.tolist())):
-        #    if a != b:
-        #        if is_debug is True:
-        #            print(batch[i])
-        #            rel_score_pairs = [(relation_lst[j], scores_np[i, j]) for j in range(len(relation_lst))]
-        #            print(rel_score_pairs)
 
         is_correct_lst += (predicted == true).tolist()
 
