@@ -12,24 +12,21 @@ from typing import Tuple, Optional
 # gives back the similarity measures of each fact in facts to the corresponding query rule
 # size [B,F], but where there's less than F facts the rest are zeroed out (similarity is 0)
 def lookup(query: Tensor, # batch_emb [B,3E]: B: batches, E: embedding size
-           facts: Tensor, # facts_emb [B,F,3E]: F: maximum number of facts
-           # nb_facts: Tensor, # [B]: number of facts in each batch
+           facts: Tensor, # facts_emb [F,3E]: F: maximum number of facts
            kernel: BaseKernel) -> Tensor:
     # query: [B, E], facts: [B, F, E], nb_facts: [B]
-    batch_size, fact_size, embedding_size = query.shape[0], facts.shape[1], query.shape[1]
+    batch_size, fact_size = query.shape[0], facts.shape[0]
 
     #facts, nb_facts = uniform(query, facts, nb_facts)
-    facts, _ = uniform(query, facts)
+    #facts, _ = uniform(query, facts)
 
-    assert query.shape[0] == facts.shape[0]  # == nb_facts.shape[0]
-    assert query.shape[1] == facts.shape[2]
+    #assert query.shape[0] == facts.shape[0]  # == nb_facts.shape[0]
+    #assert query.shape[1] == facts.shape[2]
 
-    query_repeat = query.view(batch_size, 1, -1).repeat(1, fact_size, 1) # [B,F,3E]
     # similarity measure between the query embeddings and the fact embeddings
-    kernel_values = kernel(query_repeat, facts).view(batch_size, fact_size) # [B,F]
+    kernel_values = kernel(query, facts).view(batch_size, fact_size)  # [B,F]
 
-    #mask = torch.arange(fact_size, device=facts.device).expand(batch_size, fact_size) < nb_facts.unsqueeze(1) #[B,F]
-    return kernel_values  # * mask
+    return kernel_values
 
 # if we have more query fact embeddings (a) in our batch than the batch size of our fact embeddings (b) then we repeat some
 # fact embeddings to have the same instances in the two batches (only works well if we have more by an integer multiple)

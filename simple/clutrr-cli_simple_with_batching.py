@@ -16,7 +16,7 @@ import torch.nn.functional as F
 
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance
-from simple import DataParserCTP, accuracy, BatchNeuralKB, get_neighbours, BatchHoppy
+from simple import DataParserCTP, accuracy, BatchNeuralKB, get_neighbours, BatchHoppy, GaussianKernel
 
 # from ctp.clutrr.models import BatchNeuralKB
 
@@ -27,7 +27,7 @@ from ctp.reformulators import AttentiveReformulator
 from ctp.reformulators import MemoryReformulator
 from ctp.reformulators import NTPReformulator
 
-from ctp.kernels import BaseKernel, GaussianKernel
+# from ctp.kernels import BaseKernel, GaussianKernel
 from ctp.regularizers import N2, N3, Entropy
 
 from typing import List, Tuple, Dict, Optional
@@ -252,9 +252,9 @@ def main():
         print(f"rel shape: {rel.shape}")
         arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
         # TODO: if x_dict is already with the embeddings then use that
-        arg1 = entity_embeddings(arg1_idx) # x_dict['entity'][arg1_idx]
+        arg1 = entity_embeddings(arg1_idx)  # x_dict['entity'][arg1_idx]
         arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
-        arg2 = entity_embeddings(arg2_idx) # x_dict['entity'][arg2_idx]
+        arg2 = entity_embeddings(arg2_idx)  # x_dict['entity'][arg2_idx]
 
         # Encoding facts
 
@@ -270,8 +270,9 @@ def main():
         rel_index = []
         for key, edge_index in edge_index_dict.items():
             if key[1] != 'target':  # we don't want to include the target edges in the facts
-                for edge_type in [key[1]] * edge_index.shape[1]:
-                    rel_index.append(relation_to_class[edge_type])
+                #for edge_type in [key[1]] * edge_index.shape[1]:
+                #    rel_index.append(relation_to_class[edge_type])
+                rel_index.extend([relation_to_class[key[1]]] * edge_index.shape[1])
         rel_index = torch.tensor(rel_index, dtype=torch.long, device=device)
 
         facts_rel = relation_embeddings(rel_index)  # [F,E]
@@ -280,15 +281,17 @@ def main():
         batch_size = rel.shape[0]  # nb_targets*R = B
 
         fact_size = facts_rel.shape[0]  # F - the number of facts
+        # TODO: if using x_dict instead then change this
         entity_size = len(entity_lst)  # N - the number of different entities in the facts
         # TODO: if x_dict is already embeddings, then use that instead
         entity_tensor = torch.tensor(entity_lst, dtype=torch.long, device=device)
         embeddings = entity_embeddings(entity_tensor)
 
         # [B,F,E]
-        facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)
-        facts_arg1 = facts_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)
-        facts_arg2 = facts_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        # TODO: we don't need these and then we'll have [F,E] right? CHECK THIS
+        #facts_rel = facts_rel.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        #facts_arg1 = facts_arg1.view(1, fact_size, -1).repeat(batch_size, 1, 1)
+        #facts_arg2 = facts_arg2.view(1, fact_size, -1).repeat(batch_size, 1, 1)
 
         # [B, N, E]
         # repeat the same entity embeddings for each instance in batch (== for each relation)
@@ -373,10 +376,10 @@ def main():
         for batch_no, (batch_start, batch_end) in enumerate(batcher.batches, start=1):
             global_step += 1
 
+            # TODO: put all this into the Batcher and get current_data from that
             # getting current batch from the training set
             indices_batch = batcher.get_batch(batch_start, batch_end)
-            node_ids = torch.cat((targets[0][indices_batch], targets[1][indices_batch]))
-            print(node_ids.type())
+            node_ids = torch.cat((targets[0, indices_batch], targets[1, indices_batch]))
             # set(torch.cat((targets[0][indices_batch], targets[1][indices_batch])).tolist())
             current_data, entity_lst = get_neighbours(node_ids, train_data)
             current_data['entity','target','entity'].edge_label = target_labels[indices_batch]
@@ -393,6 +396,7 @@ def main():
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
             # returns scores of what??
+            # TODO: entity_lst might not needed, can get from current_data
             scores, query_emb_lst = scoring_function_CTP(current_data,
                                                          relation_to_class,
                                                          entity_lst,
