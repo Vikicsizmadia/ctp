@@ -109,11 +109,10 @@ class BatchHoppy(nn.Module):
                     Shape: [B,E]
                 facts (List[Tensor]): [fact_rel, fact_arg1, fact_arg2].
                     Fact embeddings broke to 3 pieces: relation, arg1, arg2 embeddings.
-                    Note: In 1 batch for all R instances the facts are the same.
-                        In different batches there are possibly different facts.
-                    Shape: [3,batch*R,F,E] = [3,B,F,E] - F is the maximum number of facts among all batches.
-                entity_embeddings (Tensor): Entity embeddings corresponding to the facts of each batch.
-                    Shape: [batch*R,N,E] = [B,N,E] - N is the maximum number of entity embeddings among all batches.
+                    All facts correspond to all queries.
+                    Shape: [3,F,E] - F is the number of facts.
+                entity_embeddings (Tensor): Entity embeddings corresponding to the entities in the facts.
+                    Shape: [batch*R,N,E] = [B,N,E] - N is the number of entity embeddings.
                 depth (int): The number of how many times to reformulate the goal(s).
                     When the reformulation takes place this will be the maximum depth, and each individual subgoal
                         will be reformulated to the depth giving the highest score.

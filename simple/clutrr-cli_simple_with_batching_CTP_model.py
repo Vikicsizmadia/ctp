@@ -187,9 +187,6 @@ def main():
     nb_entities = len(entity_lst)
     nb_relations = len(relation_lst)
 
-    # entity_to_idx = {e: i for i, e in enumerate(entity_lst)}
-    # relation_to_idx = data.edge_types_to_class  # {r: i for i, r in enumerate(relation_lst)}
-
     kernel = GaussianKernel(slope=slope)
 
     # [N,E], where N is the number of different entities (nb_entities)
@@ -231,90 +228,104 @@ def main():
     # hoppy is the model that does the reasoning, using the neural KB
     hoppy = BatchHoppy(model=model, k=k_max, depth=max_depth, tnorm_name=tnorm_name, hops_lst=hops_lst).to(device)
 
-    def scoring_function_CTP(graph_data: HeteroData,
-                             relation_to_class: Dict[str, int],
-                             entity_lst: List[int],
-                             is_train: bool = False,
-                             _depth: Optional[int] = None) -> Tuple[Tensor, List[Tensor]]:
+    class CTPDecoder(nn.Module):
+        def __init__(self, depth):
+            super().__init__()
+            self.depth = depth
 
-        edge_index_dict = graph_data.edge_index_dict
-        # TODO: make x_dict with the embeddings already
-        x_dict = graph_data.x_dict
-        edge_label_index = graph_data['entity', 'target', 'entity'].edge_index
+        # TODO: Is there a way to add is_train somewhere else?
+        def forward(self, x_dict, edge_index_dict, edge_label_index, is_train):
+            # TODO: make x_dict with the embeddings already
+            # Encoding targets
 
-        # Encoding targets
+            # [nb_targets*R,E]
+            # TODO: check if I could use relation_to_class instead
+            rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1)).flatten()
+            rel = relation_embeddings(rel_idx)
+            arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
+            # TODO: if x_dict is already with the embeddings then use that
+            arg1 = entity_embeddings(arg1_idx) # x_dict['entity'][arg1_idx]
+            arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
+            arg2 = entity_embeddings(arg2_idx) # x_dict['entity'][arg2_idx]
 
-        # [nb_targets*R,E]
-        # TODO: check if I could use relation_to_class instead
-        rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1)).flatten()
-        rel = relation_embeddings(rel_idx)
-        print(f"rel shape: {rel.shape}")
-        arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
-        # TODO: if x_dict is already with the embeddings then use that
-        arg1 = entity_embeddings(arg1_idx)  # x_dict['entity'][arg1_idx]
-        arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
-        arg2 = entity_embeddings(arg2_idx)  # x_dict['entity'][arg2_idx]
+            # Encoding facts
 
-        # Encoding facts
+            # F: total number of facts
+            # necessary that the target edge type is the last edge type
+            # [F,E]
+            # TODO: if x_dict is already with the embeddings then use that
+            facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([x_dict['entity'][edge_index[0, :]] for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([x_dict['entity'][edge_index[0, :], :] for edge_index in edge_index_dict.values()])
+            facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([x_dict['entity'][edge_index[1, :]] for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([x_dict['entity'][edge_index[1, :], :] for edge_index in edge_index_dict.values()])
 
-        # F: total number of facts
-        # necessary that the target edge type is the last edge type
-        # [F,E]
-        # TODO: if x_dict is already with the embeddings then use that
-        facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-        # torch.cat([x_dict['entity'][edge_index[0, :], :] for edge_index in edge_index_dict.values()])
-        facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-        # torch.cat([x_dict['entity'][edge_index[1, :], :] for edge_index in edge_index_dict.values()])
+            rel_index_lst = []
+            for key, edge_index in edge_index_dict.items():
+                if key[1] != 'target':  # we don't want to include the target edges in the facts
+                    rel_index_lst.extend([relation_to_class[key[1]]] * edge_index.shape[1])
+            rel_index = torch.tensor(rel_index_lst, dtype=torch.long, device=device)
 
-        rel_index = []
-        for key, edge_index in edge_index_dict.items():
-            if key[1] != 'target':  # we don't want to include the target edges in the facts
-                rel_index.extend([relation_to_class[key[1]]] * edge_index.shape[1])
-        rel_index = torch.tensor(rel_index, dtype=torch.long, device=device)
+            facts_rel = relation_embeddings(rel_index)  # [F,E]
+            print(f"facts_rel shape should be [F,E], and it is: {facts_rel.shape}")
 
-        facts_rel = relation_embeddings(rel_index)  # [F,E]
-        print(f"facts_rel shape should be [F,E], and it is: {facts_rel.shape}")
+            batch_size = rel.shape[0]  # nb_targets*R = B
 
-        batch_size = rel.shape[0]  # nb_targets*R = B
+            # fact_size = facts_rel.shape[0]  # F - the number of facts
+            # TODO: if using x_dict instead then change this
+            entity_size = x_dict['entity'].shape[0]  # N - the number of different entities in the facts
+            # len(entity_lst)
+            print(f"entity_size with x_dict is: {entity_size}")
+            # TODO: if x_dict is already embeddings, then use that instead
+            # entity_tensor = torch.tensor(entity_lst, dtype=torch.long, device=device)
+            # embeddings = x_dict # entity_embeddings(entity_tensor)
 
-        fact_size = facts_rel.shape[0]  # F - the number of facts
-        # TODO: if using x_dict instead then change this
-        entity_size = len(entity_lst)  # N - the number of different entities in the facts
-        # TODO: if x_dict is already embeddings, then use that instead
-        entity_tensor = torch.tensor(entity_lst, dtype=torch.long, device=device)
-        embeddings = entity_embeddings(entity_tensor)
+            # [B, N, E]
+            # repeat the same entity embeddings for each instance in batch (== for each relation)
+            # (1 batch will be all possible relation substitutions for the target relation)
+            # --> embeddings_lst will become [batch_size,N,E], where batch is number of instances in batch
+            # embeddings = embeddings.view(1, entity_size, -1).repeat(batch_size, 1, 1)
+            embeddings = x_dict['entity'].view(1, entity_size, -1).repeat(batch_size, 1, 1)
 
-        # [B, N, E]
-        # repeat the same entity embeddings for each instance in batch (== for each relation)
-        # (1 batch will be all possible relation substitutions for the target relation)
-        # --> embeddings_lst will become [batch_size,N,E], where batch is number of instances in batch
-        embeddings = embeddings.view(1, entity_size, -1).repeat(batch_size, 1, 1)
+            # [3,F,E]
+            facts = [facts_rel, facts_arg1, facts_arg2]  # pass to prove function
 
-        # [3,F,E]
-        facts = [facts_rel, facts_arg1, facts_arg2]  # pass to prove function
+            max_depth_ = hoppy.depth
+            if not is_train and test_max_depth is not None:
+                hoppy.depth = test_max_depth
 
-        max_depth_ = hoppy.depth
-        if not is_train and test_max_depth is not None:
-            hoppy.depth = test_max_depth
+            if self.depth is not None:
+                hoppy.depth = self.depth
 
-        if _depth is not None:
-            hoppy.depth = _depth
+            # [nb_targets*R] = [B]
+            scores = hoppy.prove(rel, arg1, arg2, facts, embeddings, hoppy.depth)
 
-        # [nb_targets*R] = [B]
-        scores = hoppy.prove(rel, arg1, arg2, facts, embeddings, hoppy.depth)
+            if not is_train and test_max_depth is not None:
+                hoppy.depth = max_depth_
 
-        if not is_train and test_max_depth is not None:
-            hoppy.depth = max_depth_
+            if self.depth is not None:
+                hoppy.depth = max_depth_
 
-        if _depth is not None:
-            hoppy.depth = max_depth_
+            return scores, [rel, arg1, arg2]  # [rel_emb, arg1_emb, arg2_emb]
 
-        return scores, [rel, arg1, arg2]  # [rel_emb, arg1_emb, arg2_emb]
+    class CTPModel(nn.Module):
+        def __init__(self, depth):
+            super().__init__()
+            self.embeddings = nn.Embedding(nb_entities, embedding_size, sparse=True).to(device)
+            nn.init.uniform_(self.embeddings.weight, -1.0, 1.0)
+            self.embeddings.requires_grad = False
+            self.decoder = CTPDecoder(depth).to(device)
+
+        # TODO: Is there a way to add is_train somewhere else?
+        def forward(self, x_dict, edge_index_dict, edge_label_index, is_train=False):
+            x_dict = {'entity': self.embeddings(x_dict['entity'])}
+            return self.decoder(x_dict, edge_index_dict, edge_label_index, is_train)
 
     def evaluate_CTP(graph_data: HeteroData,
                      relation_to_class: Dict[str, int],
                      path: str) -> float:
-        res = accuracy(scoring_function=scoring_function_CTP,
+        res = accuracy(ctp_model=CTPModel(depth=None).to(device),
                        graph_data=graph_data,
                        relation_to_class=relation_to_class,
                        relation_lst=relation_lst,
@@ -324,7 +335,7 @@ def main():
 
     loss_function = nn.BCELoss()
 
-    params_lst = [p for p in hoppy.parameters() if not torch.equal(p, entity_embeddings.weight)]
+    params_lst = list(hoppy.parameters()) # [p for p in hoppy.parameters() if not torch.equal(p, entity_embeddings.weight)]
 
     if is_fixed_relations is False:
         params_lst += relation_embeddings.parameters()
@@ -373,23 +384,25 @@ def main():
             current_data['entity','target','entity'].edge_label = target_labels[indices_batch]
 
             # label_lst: list of 1s and 0s indicating where is the target relation in the relation_lst
-            label_lst = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
+            labels = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
                                     device=device)
             for i in range(len(current_data['entity', 'target', 'entity'].edge_label)):
                 zero_idx = i * nb_relations
                 class_num = current_data['entity', 'target', 'entity'].edge_label[i]
-                label_lst[zero_idx + class_num] = 1
+                labels[zero_idx + class_num] = 1
             # TODO: one_hot-tal megcsinalni a targetet
 
-            labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
+            # labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
+
+            ctp_model = CTPModel(depth=1 if is_simple else None).to(device)
 
             # returns scores of what??
             # TODO: entity_lst might not needed, can get from current_data
-            scores, query_emb_lst = scoring_function_CTP(current_data,
-                                                         relation_to_class,
-                                                         entity_lst,
-                                                         is_train=True,
-                                                         _depth=1 if is_simple else None)
+            scores, query_emb_lst = ctp_model(current_data.x_dict,
+                                              current_data.edge_index_dict,
+                                              current_data['entity', 'target', 'entity'].edge_index,
+                                              is_train=True)
+            # scoring_function_CTP(current_data,relation_to_class,entity_lst,is_train=True,_depth=1 if is_simple else None)
 
             loss = loss_function(scores, labels)
 

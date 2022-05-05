@@ -28,9 +28,6 @@ class DataParserCTP:
                                       for _, r in v.items() if k != 'no-relation'}
         self.relation_lst = sorted({r for r in self.relation_to_predicate.keys()})
 
-        #allowed_edges = sorted({'father', 'son', 'wife', 'husband', 'uncle', 'grandfather', 'grandmother', 'daughter'})
-        # self.relation_lst = allowed_edges
-
         self.edge_types_to_class = {}  # dictionary to connect relation types to class ids
         class_num = 0
         for rel in self.relation_lst:
