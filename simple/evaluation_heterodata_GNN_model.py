@@ -14,10 +14,10 @@ from torch_geometric.data import HeteroData
 from simple import get_neighbours
 
 
-def accuracy(ctp_model: Callable[[Tensor, Tensor, Tensor], Tuple[Tensor, Any]],
-             graph_data: HeteroData,
-             relation_lst: List[str],
-             batch_size: Optional[int] = None) -> float:
+def accuracyGNN(gnn_model: Callable[[Tensor, Dict, Tensor], Tensor],
+                graph_data: HeteroData,
+                relation_lst: List[str],
+                batch_size: Optional[int] = None) -> float:
 
     targets = graph_data['entity', 'target', 'entity'].edge_index
     target_labels = graph_data['entity', 'target', 'entity'].edge_label
@@ -42,9 +42,9 @@ def accuracy(ctp_model: Callable[[Tensor, Tensor, Tensor], Tuple[Tensor, Any]],
         batch_size = batch_end-batch_start
 
         with torch.no_grad():
-            scores, _ = ctp_model(current_data.x_dict,
-                                  current_data.edge_index_dict,
-                                  current_data['entity', 'target', 'entity'].edge_index)
+            scores = gnn_model(current_data.x_dict,
+                               current_data.edge_index_dict,
+                               current_data['entity', 'target', 'entity'].edge_index)
             scores = scores.view(batch_size, nb_relations)
             scores_np = scores.cpu().numpy()
 

@@ -43,12 +43,13 @@ torch.set_num_threads(multiprocessing.cpu_count())
 
 # TODO: def show_rules deleted, see if needed
 
-
 class BatcherHetero:
     def __init__(self,
+                 data: HeteroData,
                  batch_size: int,
                  nb_examples: int, # number of targets
                  random_state: Optional[np.random.RandomState]):
+        self.data = data
         self.batch_size = batch_size
         self.nb_examples = nb_examples
         self.random_state = random_state
@@ -60,30 +61,39 @@ class BatcherHetero:
         else:
             self.curriculum = np.arange(nb_examples)
 
-        self.batches = make_batches(self.curriculum.shape[0], self.batch_size)
-        self.nb_batches = len(self.batches)
+        self.batch_indices = make_batches(self.curriculum.shape[0], self.batch_size)
+        self.nb_batches = len(self.batch_indices)
 
-    def get_batch(self,
-                  batch_start: int,
-                  batch_end: int) -> np.ndarray:
-        return self.curriculum[batch_start:batch_end]
+        self.targets = self.data['entity', 'target', 'entity'].edge_index
+        self.target_labels = self.data['entity', 'target', 'entity'].edge_label
+
+    def get_batch(self, batch_start, batch_end) -> HeteroData:
+
+        # getting current batch from the training set
+        indices_batch = self.curriculum[batch_start:batch_end]
+        node_ids = torch.cat((self.targets[0, indices_batch], self.targets[1, indices_batch]))
+        # set(torch.cat((targets[0][indices_batch], targets[1][indices_batch])).tolist())
+        # TODO: second result is entity_lst --> check if it's used somewhere
+        current_data, _ = get_neighbours(node_ids, self.data)
+        current_data['entity', 'target', 'entity'].edge_label = self.target_labels[indices_batch]
+        return current_data
 
 
 def main():
 
-    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04',
-                      '1.2,1.3,1.4_train.csv')  # "data/clutrr-emnlp/data_test/64.csv"
+    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
+    # "data/clutrr-emnlp/data_test/64.csv"
+    # 'data_db9b8f04', '1.2,1.3,1.4_train.csv'
     test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
-    # test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
     test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
     test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
     test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
-    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
-    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
-    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
-    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
-    test_paths = [test_path1, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
-    # test_path2,
+    # test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    # test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    # test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    # test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5]  # , test_path6, test_path7, test_path8, test_path9]
 
     # model params
 
@@ -113,9 +123,9 @@ def main():
 ### OTHER
     learning_rate = 0.01  # 0.1 is suggested
     # training batch size
-    batch_size = 4  # 32
+    batch_size = 3  # 32
     # testing batch size --> this can be smaller than for training
-    test_batch_size = batch_size  # could be other as well
+    test_batch_size = 2  # batch_size  # could be other as well
 
     optimizer_name = 'adagrad'  # choices = ['adagrad', 'adam', 'sgd']
 
@@ -123,7 +133,7 @@ def main():
 
     # how often you want to evaluate
     evaluate_every = 128  # int
-    evaluate_every_batches = 10  # None, int
+    evaluate_every_batches = 21  # None, int
 
     # whether you want to regularize
     #argparser.add_argument('--N2', action='store', type=float, default=None)
@@ -232,6 +242,7 @@ def main():
         def __init__(self, depth):
             super().__init__()
             self.depth = depth
+            # TODO: relation_embeddings here
 
         # TODO: Is there a way to add is_train somewhere else?
         def forward(self, x_dict, edge_index_dict, edge_label_index, is_train):
@@ -244,9 +255,9 @@ def main():
             rel = relation_embeddings(rel_idx)
             arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
             # TODO: if x_dict is already with the embeddings then use that
-            arg1 = entity_embeddings(arg1_idx) # x_dict['entity'][arg1_idx]
+            arg1 = x_dict['entity'][arg1_idx]  # entity_embeddings(arg1_idx)
             arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
-            arg2 = entity_embeddings(arg2_idx) # x_dict['entity'][arg2_idx]
+            arg2 = x_dict['entity'][arg2_idx]  # entity_embeddings(arg2_idx)
 
             # Encoding facts
 
@@ -254,11 +265,10 @@ def main():
             # necessary that the target edge type is the last edge type
             # [F,E]
             # TODO: if x_dict is already with the embeddings then use that
-            facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-            # torch.cat([x_dict['entity'][edge_index[0, :]] for edge_index in list(edge_index_dict.values())[:-1]])
-            # torch.cat([x_dict['entity'][edge_index[0, :], :] for edge_index in edge_index_dict.values()])
-            facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-            # torch.cat([x_dict['entity'][edge_index[1, :]] for edge_index in list(edge_index_dict.values())[:-1]])
+            facts_arg1 = torch.cat([x_dict['entity'][edge_index[0, :]] for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]])
+            facts_arg2 = torch.cat([x_dict['entity'][edge_index[1, :]] for edge_index in list(edge_index_dict.values())[:-1]])
+            # torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]])
             # torch.cat([x_dict['entity'][edge_index[1, :], :] for edge_index in edge_index_dict.values()])
 
             rel_index_lst = []
@@ -268,18 +278,12 @@ def main():
             rel_index = torch.tensor(rel_index_lst, dtype=torch.long, device=device)
 
             facts_rel = relation_embeddings(rel_index)  # [F,E]
-            print(f"facts_rel shape should be [F,E], and it is: {facts_rel.shape}")
 
             batch_size = rel.shape[0]  # nb_targets*R = B
 
             # fact_size = facts_rel.shape[0]  # F - the number of facts
             # TODO: if using x_dict instead then change this
             entity_size = x_dict['entity'].shape[0]  # N - the number of different entities in the facts
-            # len(entity_lst)
-            print(f"entity_size with x_dict is: {entity_size}")
-            # TODO: if x_dict is already embeddings, then use that instead
-            # entity_tensor = torch.tensor(entity_lst, dtype=torch.long, device=device)
-            # embeddings = x_dict # entity_embeddings(entity_tensor)
 
             # [B, N, E]
             # repeat the same entity embeddings for each instance in batch (== for each relation)
@@ -323,11 +327,10 @@ def main():
             return self.decoder(x_dict, edge_index_dict, edge_label_index, is_train)
 
     def evaluate_CTP(graph_data: HeteroData,
-                     relation_to_class: Dict[str, int],
+                     ctp_model: nn.Module,
                      path: str) -> float:
-        res = accuracy(ctp_model=CTPModel(depth=None).to(device),
+        res = accuracy(ctp_model=ctp_model, # TODO: figure out if making new is a problem: CTPModel(depth=test_max_depth).to(device)
                        graph_data=graph_data,
-                       relation_to_class=relation_to_class,
                        relation_lst=relation_lst,
                        batch_size=test_batch_size)
         logger.info(f'Test Accuracy on {path}: {res:.6f}')
@@ -335,7 +338,7 @@ def main():
 
     loss_function = nn.BCELoss()
 
-    params_lst = list(hoppy.parameters()) # [p for p in hoppy.parameters() if not torch.equal(p, entity_embeddings.weight)]
+    params_lst = list(hoppy.parameters())
 
     if is_fixed_relations is False:
         params_lst += relation_embeddings.parameters()
@@ -360,28 +363,23 @@ def main():
     global_step = 0
     relation_to_class = data.edge_types_to_class
 
+    ctp_model = CTPModel(None).to(device)
+
     for epoch_no in range(1, nb_epochs + 1):
 
         train_data, is_simple = data.train_graph, False
 
         targets = train_data['entity', 'target', 'entity'].edge_index
-        target_labels = train_data['entity', 'target', 'entity'].edge_label
 
-        batcher = BatcherHetero(batch_size=batch_size, nb_examples=targets.shape[1], random_state=random_state)
+        batcher = BatcherHetero(data=train_data, batch_size=batch_size, nb_examples=targets.shape[1], random_state=random_state)
 
-        nb_batches = len(batcher.batches)
+        nb_batches = batcher.nb_batches
         epoch_loss_values = []
 
-        for batch_no, (batch_start, batch_end) in enumerate(batcher.batches, start=1):
+        for batch_no, (batch_start,batch_end) in enumerate(batcher.batch_indices, start=1):
             global_step += 1
 
-            # TODO: put all this into the Batcher and get current_data from that
-            # getting current batch from the training set
-            indices_batch = batcher.get_batch(batch_start, batch_end)
-            node_ids = torch.cat((targets[0, indices_batch], targets[1, indices_batch]))
-            # set(torch.cat((targets[0][indices_batch], targets[1][indices_batch])).tolist())
-            current_data, entity_lst = get_neighbours(node_ids, train_data)
-            current_data['entity','target','entity'].edge_label = target_labels[indices_batch]
+            current_data = batcher.get_batch(batch_start,batch_end)
 
             # label_lst: list of 1s and 0s indicating where is the target relation in the relation_lst
             labels = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
@@ -392,17 +390,11 @@ def main():
                 labels[zero_idx + class_num] = 1
             # TODO: one_hot-tal megcsinalni a targetet
 
-            # labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
-
-            ctp_model = CTPModel(depth=1 if is_simple else None).to(device)
-
-            # returns scores of what??
-            # TODO: entity_lst might not needed, can get from current_data
+            # returns scores for each edge type substituted for each target edge
             scores, query_emb_lst = ctp_model(current_data.x_dict,
                                               current_data.edge_index_dict,
                                               current_data['entity', 'target', 'entity'].edge_index,
                                               is_train=True)
-            # scoring_function_CTP(current_data,relation_to_class,entity_lst,is_train=True,_depth=1 if is_simple else None)
 
             loss = loss_function(scores, labels)
 
@@ -425,15 +417,18 @@ def main():
                     for test_path in test_paths:
                         # TODO: see if cache deleting needed
                         torch.cuda.empty_cache()
-                        evaluate_CTP(data.test_graphs[test_path], relation_to_class, path=test_path)
+                        evaluate_CTP(data.test_graphs[test_path],  ctp_model, path=test_path)
+                    evaluate_CTP(data.train_graph, ctp_model, path=train_path)
 
             torch.cuda.empty_cache()
 
         if epoch_no % evaluate_every == 0:
+            torch.cuda.empty_cache()
             for test_path in test_paths:
                 evaluate_CTP(graph_data=data.test_graphs[test_path],
-                             relation_to_class=relation_to_class,
+                             ctp_model=ctp_model,
                              path=test_path)
+            evaluate_CTP(data.train_graph, ctp_model, path=train_path)
 
         loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
 
@@ -445,7 +440,7 @@ def main():
 
     for test_path in test_paths:
         evaluate_CTP(graph_data=data.test_graphs[test_path],
-                     relation_to_class=relation_to_class,
+                     ctp_model=ctp_model,
                      path=test_path)
 
     end = time.time()

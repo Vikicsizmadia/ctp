@@ -1,15 +1,10 @@
-import argparse
-import os.path as osp
-
 import torch
-import torch.nn.functional as F
 from torch.nn import Linear
 from torch import nn
 
-import torch_geometric.transforms as T
-from simple import DataParser
-# from torch_geometric.datasets import MovieLens
+from simple import DataParser, accuracyGNN
 from torch_geometric.nn import SAGEConv, to_hetero
+from torch_geometric.data import HeteroData
 
 from os.path import join, dirname, abspath
 
@@ -48,7 +43,6 @@ class GNNEncoder(torch.nn.Module):
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index).relu()
         x = self.conv2(x, edge_index)
-        #print(f"x3: {x}")
         return x
 
 
@@ -61,7 +55,6 @@ class EdgeDecoder(torch.nn.Module):
     def forward(self, z_dict, edge_label_index):
         row, col = edge_label_index
         z = torch.cat([z_dict['entity'][row], z_dict['entity'][col]], dim=-1)
-
         z = self.lin1(z).relu()
         z = self.lin2(z)
         return z.view(-1)
@@ -78,7 +71,6 @@ class Model(torch.nn.Module):
         self.decoder = EdgeDecoder(hidden_channels)
 
     def forward(self, x_dict, edge_index_dict, edge_label_index):
-        #print("before")
         x_dict = {'entity': self.embeddings(x_dict['entity'])}
         z_dict = self.encoder(x_dict, edge_index_dict)
         return self.decoder(z_dict, edge_label_index)
@@ -86,8 +78,7 @@ class Model(torch.nn.Module):
 
 model = Model(hidden_channels=32).to(device)
 
-# Due to lazy initialization, we need to run one model step so the number
-# of parameters can be inferred:
+# Due to lazy initialization, we need to run one model step so the number of parameters can be inferred:
 with torch.no_grad():
     x_dict = {'entity': model.embeddings(train_data.x_dict['entity'])}
     model.encoder(x_dict, train_data.edge_index_dict)
@@ -98,9 +89,6 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 def train():
     model.train()
     optimizer.zero_grad()
-    #print(train_data.x_dict['entity'].shape)
-    #for k,v in train_data.edge_index_dict.items():
-    #    print(k,v.shape)
     pred = model(train_data.x_dict, train_data.edge_index_dict, train_data['entity', 'target', 'entity'].edge_index)
     pred = pred.clamp(min=0, max=1)
     print(f"pred shape: {pred.shape}")
@@ -120,9 +108,6 @@ def train():
 @torch.no_grad()
 def test(data):
     model.eval()
-    #print(data.x_dict['entity'].shape)
-    #for k,v in data.edge_index_dict.items():
-    #    print(k,v.shape)
     pred = model(data.x_dict, data.edge_index_dict, data['entity', 'target', 'entity'].edge_index)
     pred = pred.clamp(min=0, max=1)
     target = torch.zeros(pred.shape[0], device=device)
@@ -132,6 +117,16 @@ def test(data):
         target[zero_idx + class_num] = 1
     loss = loss_function(pred, target)
     return float(loss)
+
+
+def evaluate_GNN(graph_data: HeteroData,
+                 path: str) -> float:
+    res = accuracyGNN(gnn_model=CTPModel(depth=None).to(device),
+                   graph_data=graph_data,
+                   relation_lst=relation_lst,
+                   batch_size=test_batch_size)
+    logger.info(f'Test Accuracy on {path}: {res:.6f}')
+    return res
 
 
 #for epoch in range(1, 301):

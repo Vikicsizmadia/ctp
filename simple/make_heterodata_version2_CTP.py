@@ -82,7 +82,6 @@ class DataParserCTP:
             edges = {}  # dictionary for collecting edges of different types (edge_type : [[subject_nodes],[object_nodes]])
             target_edges = [[], []]  # collecting target edges ([[subject_nodes],[object_nodes]])
             target_labels = [] # collecting corresponding target labels (["father","uncle",...])
-            #edge_types_to_class = {}  # dictionary to collect relation types to corresponding class ids
             for row in reader:
                 _id, _, _, query, _, target, _, _, _, _, _, story_edges, edge_types, _, genders, _, tmp, _ = row
                 if len(_id) > 0:
@@ -102,10 +101,7 @@ class DataParserCTP:
 
                 idx += 1
 
-            # just the indices
             data['entity'].x = torch.arange(original_idx, original_idx+len(name_to_id), dtype=torch.long, device=device)
-            #print(edges.keys())
-            # for rel_type in allowed_edges:
             for rel_type in edges.keys():
                 data['entity', rel_type, 'entity'].edge_index = torch.tensor(edges[rel_type],
                                                                              dtype=torch.long, device=device)
