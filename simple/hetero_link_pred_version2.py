@@ -2,16 +2,30 @@ import torch
 from torch.nn import Linear
 from torch import nn
 
+import os
+from os.path import join, dirname, abspath
+import sys
+
+import argparse
+
+import multiprocessing
+import numpy as np
+
 from simple import DataParser, accuracyGNN
 from torch_geometric.nn import SAGEConv, to_hetero
 from torch_geometric.data import HeteroData
 
 from os.path import join, dirname, abspath
 
+import logging
+
+logger = logging.getLogger(os.path.basename(sys.argv[0]))
+np.set_printoptions(linewidth=256, precision=4, suppress=True, threshold=sys.maxsize)
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # getting the dataset
-train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv')
+train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
 test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
 #test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
 test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
@@ -121,11 +135,10 @@ def test(data):
 
 def evaluate_GNN(graph_data: HeteroData,
                  path: str) -> float:
-    res = accuracyGNN(gnn_model=CTPModel(depth=None).to(device),
+    res = accuracyGNN(gnn_model=model,
                    graph_data=graph_data,
-                   relation_lst=relation_lst,
-                   batch_size=test_batch_size)
-    logger.info(f'Test Accuracy on {path}: {res:.6f}')
+                   relation_lst=relation_lst)
+    print(f'Test Accuracy on {path}: {res:.6f}')
     return res
 
 
@@ -140,6 +153,8 @@ def evaluate_GNN(graph_data: HeteroData,
 for epoch in range(1, 301):
     loss = train()
     print(f'Epoch: {epoch:03d}, Train: {loss:.4f}')
+    evaluate_GNN(train_data, train_path)
     for test_path in test_paths:
         test_loss = test(test_datas[test_path])
         print(f'Test: {test_loss:.4f}')
+        evaluate_GNN(test_datas[test_path], test_path)

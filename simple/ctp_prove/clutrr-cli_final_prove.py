@@ -5,8 +5,6 @@ import os
 from os.path import join, dirname, abspath
 import sys
 
-import argparse
-
 import multiprocessing
 import numpy as np
 
@@ -17,18 +15,15 @@ import torch.nn.functional as F
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance, accuracy
 
-from ctp.clutrr.models import BatchNeuralKB
-from model_simple import BatchHoppy
+from gaussian_final import GaussianKernel
+from kb_final import BatchNeuralKB
+from model_final_prove import BatchHoppy
 
 from ctp.reformulators import BaseReformulator
-from ctp.reformulators import StaticReformulator
 from ctp.reformulators import LinearReformulator
-from ctp.reformulators import AttentiveReformulator
 from ctp.reformulators import MemoryReformulator
-from ctp.reformulators import NTPReformulator
 
 from ctp.kernels import BaseKernel, GaussianKernel
-from ctp.regularizers import N2, N3, Entropy
 
 from typing import List, Tuple, Dict, Optional
 
@@ -161,17 +156,16 @@ def main():
 
     debug = False
 
-    # train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
-    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
-    test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
-    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
-    test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
-    test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
-    test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
-    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
-    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
-    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
-    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    train_path= join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
+    test_path1 = join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
+    test_path2 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path3 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
+    test_path4 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
+    test_path5 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
+    test_path6 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    test_path7 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    test_path8 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    test_path9 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
     test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
 
     # model params
@@ -180,7 +174,7 @@ def main():
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
 ### OTHER
-    k_max = 5 #10, 5 in suggested
+    k_max = 5 #10, 5 is suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
     max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
@@ -197,8 +191,10 @@ def main():
 
     # training params
 
-    nb_epochs = 50 # 100
-    learning_rate = 0.1
+### OTHER
+    nb_epochs = 50 # 100, 5 is suggested
+### OTHER
+    learning_rate = 0.1 #0.1 is suggested
     # training batch size
     batch_size = 32
     # testing batch size --> this can be smaller than for training
@@ -250,7 +246,7 @@ def main():
     save_path = None # str
 
     # took out predicates from the code, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
-    is_predicate = False
+    #is_predicate = False
 
 # IGNORED variables:
     #N2_weight = args.N2
@@ -274,23 +270,16 @@ def main():
 
     data = Data(train_path=train_path, test_paths=test_paths)
     entity_lst, relation_lst = data.entity_lst, data.relation_lst
-    predicate_lst = data.predicate_lst
-
-    relation_to_predicate = data.relation_to_predicate
 
     test_relation_lst = ["aunt", "brother", "daughter", "daughter-in-law", "father", "father-in-law", "granddaughter",
                          "grandfather", "grandmother", "grandson", "mother", "mother-in-law", "nephew", "niece",
                          "sister", "son", "son-in-law", "uncle"]
 
-    test_predicate_lst = sorted({relation_to_predicate[r] for r in test_relation_lst})
-
     nb_entities = len(entity_lst)
     nb_relations = len(relation_lst)
-    nb_predicates = len(predicate_lst)
 
     entity_to_idx = {e: i for i, e in enumerate(entity_lst)}
     relation_to_idx = {r: i for i, r in enumerate(relation_lst)}
-    predicate_to_idx = {p: i for i, p in enumerate(predicate_lst)}
 
     kernel = GaussianKernel(slope=slope)
 
@@ -298,8 +287,7 @@ def main():
     nn.init.uniform_(entity_embeddings.weight, -1.0, 1.0)
     entity_embeddings.requires_grad = False
 
-    relation_embeddings = nn.Embedding(nb_relations if not is_predicate else nb_predicates,
-                                       embedding_size, sparse=True).to(device)
+    relation_embeddings = nn.Embedding(nb_relations, embedding_size, sparse=True).to(device)
 
     if is_fixed_relations is True:
         relation_embeddings.requires_grad = False
@@ -354,22 +342,12 @@ def main():
 
         for i, instance in enumerate(instances_batch):
 
-            if is_predicate is True:
-                def _convert_fact(fact: Fact) -> Fact:
-                    _s, _r, _o = fact
-                    return _s, relation_to_predicate[_r], _o
-
-                new_story = [_convert_fact(f) for f in instance.story]
-                new_target = _convert_fact(instance.target)
-                instance = Instance(new_story, new_target, instance.nb_nodes)
-
             story, target = instance.story, instance.target
             s, r, o = target  # 1 target relation
 
             # the relation embeddings from all facts (==story)
             # [F,E], where F is the number of facts
-            story_rel = encode_relation(story, relation_embeddings.weight,
-                                        predicate_to_idx if is_predicate else relation_to_idx, device)
+            story_rel = encode_relation(story, relation_embeddings.weight, relation_to_idx, device)
             # the subject,object embeddings from all facts (==story)
             # [F,E],[F,E]
             story_arg1, story_arg2 = encode_arguments(story, entity_embeddings.weight, entity_to_idx, device)
@@ -382,7 +360,7 @@ def main():
             # [R,3] where R is the number of relations
             target_lst: List[Tuple[str, str, str]] = [(s, x, o) for x in relation_lst]
 
-            assert len(target_lst) == len(test_predicate_lst if is_predicate else test_relation_lst)
+            assert len(target_lst) == len(test_relation_lst)
 
             # true_predicate = rel_to_predicate[r]
             # label_lst += [int(true_predicate == rel_to_predicate[r]) for r in relation_lst]
@@ -393,8 +371,7 @@ def main():
 
             # relation embeddings of the target subject,object paired with all possible relations - R relations
             # [R,E]
-            rel_emb = encode_relation(target_lst, relation_embeddings.weight,
-                                      predicate_to_idx if is_predicate else relation_to_idx, device)
+            rel_emb = encode_relation(target_lst, relation_embeddings.weight, relation_to_idx, device)
             # target subject,object embeddings
             # [R,E],[R,E] (actually all will be the same as the subject, object doesn't change just the relations)
             arg1_emb, arg2_emb = encode_arguments(target_lst, entity_embeddings.weight, entity_to_idx, device)
@@ -472,9 +449,7 @@ def main():
         if _depth is not None:
             hoppy.depth = _depth
 
-        # trying hoppy.prove instead
-        scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings)
-        #scores = hoppy.prove(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings, hoppy.depth)
+        scores = hoppy.prove(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings, hoppy.depth)
 
         if not is_train and test_max_depth is not None:
             hoppy.depth = max_depth_
@@ -492,9 +467,9 @@ def main():
             res = accuracy(scoring_function=scoring_function,
                            instances=instances,
                            sample_size=sample_size,
-                           relation_lst=test_predicate_lst if is_predicate else test_relation_lst,
+                           relation_lst=test_relation_lst,
                            batch_size=test_batch_size,
-                           relation_to_predicate=relation_to_predicate if is_predicate else None,
+                           relation_to_predicate=None,
                            is_debug=is_debug)
             logger.info(f'Test Accuracy on {path}: {res:.6f}')
         return res
@@ -527,14 +502,11 @@ def main():
     global_step = 0
 
     loss_mean_lst = []
-    scores_total = []
+    scores_bigger_06 = []
     scores_bigger_05 = []
-    scores_bigger_03 = []
     scores_smaller_01 = []
     scores_smaller_005 = []
     scores_smaller_001 = []
-    scores_smaller_0005 = []
-    scores_smaller_0001 = []
 
     for epoch_no in range(1, nb_epochs + 1):
 
@@ -562,30 +534,22 @@ def main():
             instances_batch = [training_set[i] for i in indices_batch]
 
             # label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
-            # TODO: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
-            if is_predicate is True:
-                label_lst: List[int] = [int(relation_to_predicate[ins.target[1]] == tp)
-                                        for ins in instances_batch
-                                        for tp in test_predicate_lst]
-            else:
-                label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
+            label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
 
             # returns scores of what??
             scores, query_emb_lst = scoring_function(instances_batch,
-                                                     test_predicate_lst if is_predicate else test_relation_lst,
+                                                     test_relation_lst,
                                                      is_train=True,
                                                      _depth=1 if is_simple else None)
 
-            scores_total.append(scores.shape[0])
+            print(f"Scores > 0.5: {(scores > 0.5).sum()}\Scores < 0.01: {(scores < 0.01).sum()}\Total number: {scores.shape[0]}")
+            scores_bigger_06.append(int((scores > 0.6).sum()))
             scores_bigger_05.append(int((scores > 0.5).sum()))
-            scores_bigger_03.append(int((scores > 0.3).sum()))
             scores_smaller_01.append(int((scores < 0.1).sum()))
             scores_smaller_005.append(int((scores < 0.05).sum()))
             scores_smaller_001.append(int((scores < 0.01).sum()))
-            scores_smaller_0005.append(int((scores < 0.005).sum()))
-            scores_smaller_0001.append(int((scores < 0.001).sum()))
 
             loss = loss_function(scores, labels)
 
@@ -620,7 +584,7 @@ def main():
                 if is_debug is True:
                     with torch.no_grad():
                         show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
-                                   relation_to_idx=predicate_to_idx if is_predicate else relation_to_idx, device=device)
+                                   relation_to_idx=relation_to_idx, device=device)
 
         loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
 
@@ -633,14 +597,11 @@ def main():
     logger.info(f'Training took {end_time - start_time} seconds.')
 
     print(f"loss list: {loss_mean_lst}")
-    print(f"total number of scores: {scores_total}")
+    print(f"scores bigger than 0.6: {scores_bigger_06}")
     print(f"scores bigger than 0.5: {scores_bigger_05}")
-    print(f"scores bigger than 0.3: {scores_bigger_03}")
     print(f"scores smaller than 0.1: {scores_smaller_01}")
     print(f"scores smaller than 0.05: {scores_smaller_005}")
     print(f"scores smaller than 0.01: {scores_smaller_001}")
-    print(f"scores smaller than 0.005: {scores_smaller_0005}")
-    print(f"scores smaller than 0.001: {scores_smaller_0001}")
 
     start = time.time()
 

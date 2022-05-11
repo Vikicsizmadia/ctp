@@ -5,8 +5,6 @@ import os
 from os.path import join, dirname, abspath
 import sys
 
-import argparse
-
 import multiprocessing
 import numpy as np
 
@@ -18,17 +16,13 @@ from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance, accuracy
 
 from ctp.clutrr.models import BatchNeuralKB
-from model_simple import BatchHoppy
+from model_final import BatchHoppy
 
 from ctp.reformulators import BaseReformulator
-from ctp.reformulators import StaticReformulator
 from ctp.reformulators import LinearReformulator
-from ctp.reformulators import AttentiveReformulator
 from ctp.reformulators import MemoryReformulator
-from ctp.reformulators import NTPReformulator
 
 from ctp.kernels import BaseKernel, GaussianKernel
-from ctp.regularizers import N2, N3, Entropy
 
 from typing import List, Tuple, Dict, Optional
 
@@ -161,17 +155,16 @@ def main():
 
     debug = False
 
-    # train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
-    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
-    test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
-    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
-    test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
-    test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
-    test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
-    test_path6 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
-    test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
-    test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
-    test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
+    train_path = join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
+    test_path1 = join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
+    test_path2 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path3 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
+    test_path4 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
+    test_path5 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
+    test_path6 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.6_test.csv')
+    test_path7 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
+    test_path8 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
+    test_path9 = join(dirname(dirname(dirname(abspath(__file__)))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
     test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
 
     # model params

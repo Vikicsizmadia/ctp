@@ -16,7 +16,6 @@ import torch.nn.functional as F
 
 from ctp.util import make_batches
 from ctp.clutrr import Fact, Data, Instance, accuracy
-from simple import DataParser
 
 from simple import BatchNeuralKB  # ctp.clutrr.models import BatchNeuralKB
 from model_simple_cleaned import BatchHoppy
@@ -157,9 +156,13 @@ def encode_entities(facts: List[Fact],
 
 def main():
 
+    import time
+    start_time = time.time()
+
     debug = False
 
-    train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
+    train_path= join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
+    #train_path = test_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2,1.3,1.4_train.csv') # "data/clutrr-emnlp/data_test/64.csv"
     test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
     test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
     test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
@@ -177,7 +180,7 @@ def main():
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
 ### OTHER
-    k_max = 10 #10, 5 is suggested
+    k_max = 5 #10, 5 is suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
     max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
@@ -195,9 +198,9 @@ def main():
     # training params
 
 ### OTHER
-    nb_epochs = 20 # 100, 5 is suggested
+    nb_epochs = 50 # 100, 5 is suggested
 ### OTHER
-    learning_rate = 0.01 #0.1 is suggested
+    learning_rate = 0.1 #0.1 is suggested
     # training batch size
     batch_size = 32
     # testing batch size --> this can be smaller than for training
@@ -208,7 +211,7 @@ def main():
     seed = 1 # int
 
     # how often you want to evaluate
-    evaluate_every = 128 # int
+    evaluate_every = None # int
     evaluate_every_batches = None # int
 
     # whether you want to regularize
@@ -452,8 +455,6 @@ def main():
         if _depth is not None:
             hoppy.depth = _depth
 
-        # trying hoppy.prove instead
-        # scores = hoppy.score(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings)
         scores = hoppy.prove(rel_emb, arg1_emb, arg2_emb, facts, nb_facts, _embeddings, nb_embeddings, hoppy.depth)
 
         if not is_train and test_max_depth is not None:
@@ -506,6 +507,13 @@ def main():
 
     global_step = 0
 
+    loss_mean_lst = []
+    scores_bigger_06 = []
+    scores_bigger_05 = []
+    scores_smaller_01 = []
+    scores_smaller_005 = []
+    scores_smaller_001 = []
+
     for epoch_no in range(1, nb_epochs + 1):
 
         training_set, is_simple = data.train, False
@@ -532,8 +540,6 @@ def main():
             instances_batch = [training_set[i] for i in indices_batch]
 
             # label_lst: list of 1s and 0s indicating which query (==target) relation/predicate is where in the test_predicate_lst
-            # TODO: take out predicates, no need for them (they take only 1 argument, but an edge in PyG always takes 2)
-
             label_lst: List[int] = [int(ins.target[1] == tr) for ins in instances_batch for tr in test_relation_lst]
 
             labels = torch.tensor(label_lst, dtype=torch.float32, device=device)
@@ -543,6 +549,13 @@ def main():
                                                      test_relation_lst,
                                                      is_train=True,
                                                      _depth=1 if is_simple else None)
+
+            print(f"Scores > 0.5: {(scores > 0.5).sum()}\Scores < 0.01: {(scores < 0.01).sum()}\Total number: {scores.shape[0]}")
+            scores_bigger_06.append(int((scores > 0.6).sum()))
+            scores_bigger_05.append(int((scores > 0.5).sum()))
+            scores_smaller_01.append(int((scores < 0.1).sum()))
+            scores_smaller_005.append(int((scores < 0.05).sum()))
+            scores_smaller_001.append(int((scores < 0.01).sum()))
 
             loss = loss_function(scores, labels)
 
@@ -567,22 +580,35 @@ def main():
                     for test_path in test_paths:
                         evaluate(instances=data.test[test_path], path=test_path)
 
-        if epoch_no % evaluate_every == 0:
-            for test_path in test_paths:
-                evaluate(instances=data.test[test_path], path=test_path)
+        if evaluate_every is not None:
+            if epoch_no % evaluate_every == 0:
+                for test_path in test_paths:
+                    evaluate(instances=data.test[test_path], path=test_path)
+                evaluate(instances=data.train, path=train_path)
 
-            # TODO: don't need for now, but we may look at it later
-            if is_debug is True:
-                with torch.no_grad():
-                    show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
-                               relation_to_idx=relation_to_idx, device=device)
+                # TODO: don't need for now, but we may look at it later
+                if is_debug is True:
+                    with torch.no_grad():
+                        show_rules(model=hoppy, kernel=kernel, relation_embeddings=relation_embeddings,
+                                   relation_to_idx=relation_to_idx, device=device)
 
         loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
+
+        loss_mean_lst.append(loss_mean)
 
         slope = kernel.slope.item() if isinstance(kernel.slope, Tensor) else kernel.slope
         logger.info(f'Epoch {epoch_no}/{nb_epochs}\tLoss {loss_mean:.4f} ± {loss_std:.4f}\tSlope {slope:.4f}')
 
-    import time
+    end_time = time.time()
+    logger.info(f'Training took {end_time - start_time} seconds.')
+
+    print(f"loss list: {loss_mean_lst}")
+    print(f"scores bigger than 0.6: {scores_bigger_06}")
+    print(f"scores bigger than 0.5: {scores_bigger_05}")
+    print(f"scores smaller than 0.1: {scores_smaller_01}")
+    print(f"scores smaller than 0.05: {scores_smaller_005}")
+    print(f"scores smaller than 0.01: {scores_smaller_001}")
+
     start = time.time()
 
     for test_path in test_paths:

@@ -5,13 +5,12 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from ctp.clutrr.base import Instance
 from ctp.util import make_batches
 
 from typing import Callable, List, Optional, Tuple, Any, Dict
 
 from torch_geometric.data import HeteroData
-from simple import get_neighbours
+from util_hetero_final import get_neighbours
 
 
 def accuracy(scoring_function: Callable[[HeteroData, Dict[str, int], List[int]], Tuple[Tensor, Any]],

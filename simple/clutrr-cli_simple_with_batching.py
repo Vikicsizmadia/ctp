@@ -5,8 +5,6 @@ import os
 from os.path import join, dirname, abspath
 import sys
 
-import argparse
-
 import multiprocessing
 import numpy as np
 
@@ -71,10 +69,11 @@ class BatcherHetero:
 
 def main():
 
-    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04',
-                      '1.2,1.3,1.4_train.csv')  # "data/clutrr-emnlp/data_test/64.csv"
+    #train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04','1.2,1.3,1.4_train.csv')
+    # "data/clutrr-emnlp/data_test/64.csv"
+    train_path = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
     test_path1 = join(dirname(dirname(abspath(__file__))),'data', 'clutrr-emnlp', 'data_db9b8f04', '1.10_test.csv')
-    # test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
+    test_path2 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.2_test.csv')
     test_path3 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.3_test.csv')
     test_path4 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.4_test.csv')
     test_path5 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.5_test.csv')
@@ -82,7 +81,7 @@ def main():
     test_path7 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.7_test.csv')
     test_path8 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.8_test.csv')
     test_path9 = join(dirname(dirname(abspath(__file__))), 'data', 'clutrr-emnlp', 'data_db9b8f04', '1.9_test.csv')
-    test_paths = [test_path1, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
+    test_paths = [test_path1, test_path2, test_path3, test_path4, test_path5, test_path6, test_path7, test_path8, test_path9]
     # test_path2,
 
     # model params
@@ -91,7 +90,7 @@ def main():
     embedding_size = 20
     # when proving the body of a rule, we consider the k best substitutions for each variable
 ### OTHER
-    k_max = 10  # 10, 5 is suggested
+    k_max = 5  # 10, 5 is suggested
     # how many times to reformulate the goal(s) --> bigger for bigger graph: this is for training
     max_depth = 2
     # how many times to reformulate the goal(s): this is for testing --> this depth can be bigger than for training
@@ -108,22 +107,22 @@ def main():
 
     # training params
 
+### OTHER0
+    nb_epochs = 50  # 100, 5 is suggested
 ### OTHER
-    nb_epochs = 20  # 100, 5 is suggested
-### OTHER
-    learning_rate = 0.01  # 0.1 is suggested
+    learning_rate = 0.1  # 0.1 is suggested
     # training batch size
     batch_size = 4  # 32
     # testing batch size --> this can be smaller than for training
-    test_batch_size = batch_size  # could be other as well
+    test_batch_size = 2  # could be other as well
 
     optimizer_name = 'adagrad'  # choices = ['adagrad', 'adam', 'sgd']
 
     seed = 1  # int
 
     # how often you want to evaluate
-    evaluate_every = 128  # int
-    evaluate_every_batches = 10  # None, int
+    evaluate_every = None  # int 128
+    evaluate_every_batches = None  # None, int 10
 
     # whether you want to regularize
     #argparser.add_argument('--N2', action='store', type=float, default=None)
@@ -416,11 +415,12 @@ def main():
 
             torch.cuda.empty_cache()
 
-        if epoch_no % evaluate_every == 0:
-            for test_path in test_paths:
-                evaluate_CTP(graph_data=data.test_graphs[test_path],
-                             relation_to_class=relation_to_class,
-                             path=test_path)
+        if evaluate_every is not None:
+            if epoch_no % evaluate_every == 0:
+                for test_path in test_paths:
+                    evaluate_CTP(graph_data=data.test_graphs[test_path],
+                                 relation_to_class=relation_to_class,
+                                 path=test_path)
 
         loss_mean, loss_std = np.mean(epoch_loss_values), np.std(epoch_loss_values)
 

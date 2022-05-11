@@ -55,7 +55,7 @@ class GaussianKernel(BaseKernel):
         :param y: [BxE] Tensor
         :return: [AxB] Tensor
         """
-
+        
         dim_x, emb_size_x = x.shape[:-1], x.shape[-1]
         dim_y, emb_size_y = y.shape[:-1], y.shape[-1]
 
