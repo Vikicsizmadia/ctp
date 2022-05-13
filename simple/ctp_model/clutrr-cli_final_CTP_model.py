@@ -363,7 +363,7 @@ def main():
 
             current_data = batcher.get_batch(batch_start,batch_end)
 
-            # TODO: create labels with using one_hot
+
             # label_lst: list of 1s and 0s indicating where is the target relation in the relation_lst
             labels = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
                                     device=device)
