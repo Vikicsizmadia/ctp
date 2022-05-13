@@ -1,10 +1,10 @@
 from simple.make_heterodata_version2 import DataParser
 from simple.make_heterodata_version2_CTP import DataParserCTP
 from simple.util_hetero_vectorized import get_neighbours
-from simple.ctp_model.util_hetero_final_CTP_model import get_neighbours_CTP
-from simple.ctp_model.evaluation_heterodata_CTP_model import accuracy # _CTP_model
+from simple.util_hetero_final_CTP_model import get_neighbours_CTP
+from simple.evaluation_heterodata_CTP_model import accuracy # _CTP_model
 from simple.evaluation_heterodata_GNN_model import accuracyGNN
 from simple.ctp_clutrr_models_util_hetero_simple import lookup, uniform
 from simple.gaussian_simple import GaussianKernel
-from simple.kb_simple_hetero_simple import BatchNeuralKB #
+from simple.kb_simple import BatchNeuralKB # _hetero_simple
 from simple.model_simple_cleaned_hetero_simple import BatchHoppy

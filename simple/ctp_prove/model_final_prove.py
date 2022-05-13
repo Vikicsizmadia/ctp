@@ -134,8 +134,7 @@ class BatchHoppy(nn.Module):
         # no reformulation
 
         # [B]
-        scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts,
-                                    entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+        scores_0 = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts)
 
         # reformulation
 
@@ -253,9 +252,7 @@ class BatchHoppy(nn.Module):
                     scores_2d = scores.view(batch_size, -1)
                     res, _ = torch.max(scores_2d, dim=1)
                 else:
-                    res = self.model.score(rel, arg1, arg2,
-                                           facts=facts, nb_facts=nb_facts,
-                                           entity_embeddings=entity_embeddings, nb_entities=nb_entities)
+                    res = self.model.score(rel, arg1, arg2, facts=facts, nb_facts=nb_facts)
 
                 # update scores with scores obtained from using the current reformulator
                 # [B]

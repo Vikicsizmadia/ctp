@@ -159,37 +159,14 @@ def evaluate_GNN(graph_data: HeteroData,
     # print(f'Test Accuracy on {path}: {res:.6f}')
     return res
 
-train_losses = []
-train_accs = []
-test_accs = {}
-for test_path in test_paths:
-    test_accs[test_path] = []
 
-for epoch in range(1, 101):
+for epoch in range(1, 301):
     loss = train()
-    train_losses.append(loss)
-    # print(f'Epoch: {epoch:03d}, Train: {loss:.4f}')
     train_acc = evaluate_GNN(train_data, train_path)
-    train_accs.append(train_acc)
-    for test_path in test_paths:
-        # test_loss = test(test_datas[test_path])
-        # print(f'Test: {test_loss:.4f}')
-        test_accs[test_path].append(evaluate_GNN(test_datas[test_path], test_path))
+    print(f'Epoch: {epoch:03d}, Train loss: {loss:.4f}, Train accuracy: {train_acc}')
 
-print(f"train losses: {train_losses}")
-print(f"train accuracies: {train_accs}")
 for test_path in test_paths:
-    print(f"accuracies on test {test_path}: {test_accs[test_path]}")
+    test_loss = test(test_datas[test_path])
+    test_acc= evaluate_GNN(test_datas[test_path], test_path)
+    print(f'On test dataset {test_path} loss: {test_loss:.4f}, accuracy: {test_acc}')
 
-print(f"total number of scores: {scores_total}")
-print(f"scores bigger than 0.9: {scores_bigger_09}")
-print(f"scores bigger than 0.8: {scores_bigger_08}")
-print(f"scores bigger than 0.7: {scores_bigger_07}")
-print(f"scores bigger than 0.6: {scores_bigger_06}")
-print(f"scores bigger than 0.5: {scores_bigger_05}")
-print(f"scores bigger than 0.3: {scores_bigger_03}")
-print(f"scores smaller than 0.1: {scores_smaller_01}")
-print(f"scores smaller than 0.05: {scores_smaller_005}")
-print(f"scores smaller than 0.01: {scores_smaller_001}")
-print(f"scores smaller than 0.005: {scores_smaller_0005}")
-print(f"scores smaller than 0.001: {scores_smaller_0001}")

@@ -363,6 +363,7 @@ def main():
 
             current_data = batcher.get_batch(batch_start,batch_end)
 
+            # TODO: create labels with using one_hot
             # label_lst: list of 1s and 0s indicating where is the target relation in the relation_lst
             labels = torch.zeros(current_data['entity', 'target', 'entity'].edge_index.shape[1]*nb_relations,
                                     device=device)
@@ -370,7 +371,7 @@ def main():
                 zero_idx = i * nb_relations
                 class_num = current_data['entity', 'target', 'entity'].edge_label[i]
                 labels[zero_idx + class_num] = 1
-            # TODO: one_hot-tal megcsinalni a targetet
+
 
             # returns scores for each edge type substituted for each target edge
             scores, query_emb_lst = ctp_model(current_data.x_dict,

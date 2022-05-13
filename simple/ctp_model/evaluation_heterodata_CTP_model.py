@@ -47,7 +47,7 @@ def accuracy(ctp_model: Callable[[Tensor, Tensor, Tensor], Tuple[Tensor, Any]],
         # getting current batch from the training set
         indices_batch = np.arange(batch_start, batch_end)
         node_ids = torch.cat((targets[0][indices_batch], targets[1][indices_batch]))
-        current_data, entity_lst = get_neighbours_CTP(node_ids, graph_data)
+        current_data = get_neighbours_CTP(node_ids, graph_data)
         current_data['entity', 'target', 'entity'].edge_label = target_labels[indices_batch]
 
         batch_size = batch_end-batch_start
