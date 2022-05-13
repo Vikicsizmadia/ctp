@@ -17,6 +17,33 @@ INFO:clutrr-cli.py:Test Accuracy on data/clutrr-emnlp/data_db9b8f04/1.9_test.csv
 [..]
 ```
 
+### Optimized code versions:
+
+#### Original code with a few cleanups
+```bash
+./simple/ctp_original/clutrr-cli_final.py
+```
+
+#### Cleaned up code with prove function in BatchHoppy
+```bash
+./simple/ctp_prove/clutrr-cli_final_prove.py
+```
+
+#### Code with prove function working with HeteroData
+```bash
+./simple/ctp_hetero/clutrr-cli_final_hetero.py
+```
+
+#### Code working with HeteroData with PyTorch Geometric call API format
+```bash
+./simple/ctp_model/clutrr-cli_final_CTP_model.py
+```
+
+#### GNN script running on the same CLUTRR dataset
+```bash
+./simple/gnn/hetero_link_pred_final.py
+```
+
 ### Reproducing Link Prediction Results
 
 #### UMLS
