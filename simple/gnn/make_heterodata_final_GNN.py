@@ -7,7 +7,7 @@ from os.path import join, dirname, abspath
 
 from collections import OrderedDict
 
-from typing import List, Tuple, Any, Optional, Dict
+from typing import List, Any, Optional, Dict
 from torch_geometric.data import HeteroData
 
 
@@ -21,7 +21,7 @@ class DataParser:
 
         self.device = device
 
-        with open(join(dirname(dirname(abspath(__file__))), "data", "clutrr-emnlp", "relations_store.yaml"),
+        with open(join(dirname(dirname(dirname(abspath(__file__)))), "data", "clutrr-emnlp", "relations_store.yaml"),
                   'r') as f:
             rs = yaml.safe_load(f)
         self.relation_to_predicate = {r['rel']: k for k, v in rs.items()

@@ -4,7 +4,7 @@ from torch_geometric.data import HeteroData
 
 
 def get_neighbours_CTP(node_ids: Tensor,
-                   graph_data: HeteroData) -> HeteroData:
+                       graph_data: HeteroData) -> HeteroData:
 
     """Gives back the graph containing only the node_ids that are connected to the given node ids.
 

@@ -235,9 +235,9 @@ def main():
         rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1)).flatten()
         rel = relation_embeddings(rel_idx)
         arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
-        arg1 = entity_embeddings(arg1_idx)  # x_dict['entity'][arg1_idx]
+        arg1 = entity_embeddings(arg1_idx)
         arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
-        arg2 = entity_embeddings(arg2_idx)  # x_dict['entity'][arg2_idx]
+        arg2 = entity_embeddings(arg2_idx)
 
         # Encoding facts
 
@@ -245,9 +245,7 @@ def main():
         # necessary that the target edge type is the last edge type
         # [F,E]
         facts_arg1 = torch.cat([entity_embeddings(edge_index[0, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-        # torch.cat([x_dict['entity'][edge_index[0, :], :] for edge_index in edge_index_dict.values()])
         facts_arg2 = torch.cat([entity_embeddings(edge_index[1, :]) for edge_index in list(edge_index_dict.values())[:-1]])
-        # torch.cat([x_dict['entity'][edge_index[1, :], :] for edge_index in edge_index_dict.values()])
 
         rel_index = []
         for key, edge_index in edge_index_dict.items():

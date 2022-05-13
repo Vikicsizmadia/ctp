@@ -134,8 +134,6 @@ def main():
                 Choices: 'random', 'uniform'.
             load_path (str): Path to load the model state into.
             save_path (str): Path to save the model state into.
-
-
     """
 
     train_path = join(dirname(dirname(dirname(abspath(__file__)))),'data', 'clutrr-emnlp', 'data_test', '64.csv')
@@ -204,19 +202,6 @@ def main():
 
     kernel = GaussianKernel(slope=slope)
 
-    # [N,E], where N is the number of different entities (nb_entities)
-    entity_embeddings = nn.Embedding(nb_entities, embedding_size, sparse=True).to(device)
-    nn.init.uniform_(entity_embeddings.weight, -1.0, 1.0)
-    entity_embeddings.requires_grad = False
-
-    relation_embeddings = nn.Embedding(nb_relations, embedding_size, sparse=True).to(device)
-    relation_embeddings.requires_grad = False
-
-    if init_type in {'uniform'}:
-        nn.init.uniform_(relation_embeddings.weight, -1.0, 1.0)
-
-    relation_embeddings.weight.data *= init_size
-
     # the model that lets you look up in the KB
     model = BatchNeuralKB(kernel=kernel, scoring_type='concat').to(device)
     memory: Dict[int, MemoryReformulator.Memory] = {}
@@ -246,14 +231,18 @@ def main():
         def __init__(self, depth):
             super().__init__()
             self.depth = depth
-            # TODO: relation_embeddings here
+            self.relation_embeddings = nn.Embedding(nb_relations, embedding_size, sparse=True).to(device)
+            self.relation_embeddings.requires_grad = False
+            if init_type in {'uniform'}:
+                nn.init.uniform_(self.relation_embeddings.weight, -1.0, 1.0)
+            self.relation_embeddings.weight.data *= init_size
 
         def forward(self, x_dict, edge_index_dict, edge_label_index, is_train):
             # Encoding targets
 
             # [nb_targets*R,E]
             rel_idx = torch.tile(torch.arange(nb_relations), (edge_label_index.shape[1], 1)).flatten()
-            rel = relation_embeddings(rel_idx)
+            rel = self.relation_embeddings(rel_idx)
             arg1_idx = torch.tile(edge_label_index[0, :], (nb_relations, 1)).T.flatten()
             arg1 = x_dict['entity'][arg1_idx]
             arg2_idx = torch.tile(edge_label_index[1, :], (nb_relations, 1)).T.flatten()
@@ -274,7 +263,7 @@ def main():
             rel_index = torch.tensor(rel_index_lst, dtype=torch.long, device=device)
 
             # [F,E]
-            facts_rel = relation_embeddings(rel_index)
+            facts_rel = self.relation_embeddings(rel_index)
 
             # nb_targets*R = B
             batch_size = rel.shape[0]
